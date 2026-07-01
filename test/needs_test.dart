@@ -13,18 +13,18 @@ class _Set extends Msg with Identifiable<String> {
   final String id;
 }
 
-final class _Items extends Registry<String, _Item, _Set> {
+final class _Items extends Store<String, _Item, _Set> {
   const _Items();
   @override
-  IdentifiableMap<_Item, String> reduce(
-          IdentifiableMap<_Item, String> entities, _Set m) =>
+  IdentifiableMap<String, _Item> reduce(
+          IdentifiableMap<String, _Item> entities, _Set m) =>
       entities.upsert(_Item(m.id));
 }
 
 void main() {
   test('needs() tracks Door 2 stability: missing/stale/failed → true', () {
     final bus = Bus();
-    final store = RegistryMemory(const _Items(), bus);
+    final store = StoreMemory(const _Items(), bus);
 
     expect(store.needs('a'), isTrue); // missing
     store.markLoading('a');

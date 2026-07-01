@@ -5,6 +5,21 @@ import 'package:identifiable/identifiable.dart';
 import 'envelope.dart';
 import 'msg.dart';
 
+/// Marks the spec enum canon's generator reads: each row holds a [Store] plus the
+/// `@ids` node it is keyed by. The generator emits the typed, nav-injected surface.
+class Stores {
+  const Stores();
+}
+
+/// The arg-less default.
+const stores = Stores();
+
+/// The contract the `@stores` enum wears: every row binds an [Ids] node as its
+/// [key]. Generic over [Ids] so it stays free of any concrete identity space.
+mixin StoreNode<Self extends StoreNode<Self, Ids>, Ids> on Enum {
+  Ids get key;
+}
+
 /// A PURE interceptor in the dispatch pipeline: inspect/transform an envelope,
 /// or return null to veto it. It runs in the replay/optimistic path, so it MUST
 /// be pure — a riverpod app guards the flow with one of these without coupling
@@ -14,7 +29,7 @@ typedef Guard = Envelope? Function(Envelope);
 /// The message bus — the RICH tier's transport. Dispatch envelopes through
 /// guards to typed subscribers. Transport-agnostic: feed it from WS, HTTP, a
 /// local DB, or a local optimistic `dispatch(..., optimistic: true)`.
-/// Decoupled from canon and from Flutter; a [RegistryMemory] subscribes to it,
+/// Decoupled from canon and from Flutter; a [StoreMemory] subscribes to it,
 /// and a riverpod notifier can subscribe via [on] too — neither owns the other.
 class Bus {
   final StreamController<Envelope> _controller =
@@ -73,9 +88,9 @@ class Bus {
 
 /// The PURE, const registry descriptor: how a message folds into an entry's
 /// state. No mutable state, no `ref`, const — so it can sit in a spec. The live
-/// store ([RegistryMemory]) is created separately and wired to a [Bus].
-abstract class Registry<K, E extends Identifiable<K>, M extends Msg> {
-  const Registry();
+/// store ([StoreMemory]) is created separately and wired to a [Bus].
+abstract class Store<K, E extends Identifiable<K>, M extends Msg> {
+  const Store();
 
   /// Fold a message into the registry's keyed collection and return the NEXT
   /// collection. PURE — replayed on optimistic confirm/rollback, so no side
@@ -83,12 +98,8 @@ abstract class Registry<K, E extends Identifiable<K>, M extends Msg> {
   /// `identifiable` map extensions keep it terse:
   /// `entities.upsert(x)` · `entities.upsertAll(xs)` · `entities.removeById(id)`
   /// · `entities.updateById(id, (cur) => …)`.
-  IdentifiableMap<E, K> reduce(IdentifiableMap<E, K> entities, M msg);
+  IdentifiableMap<K, E> reduce(IdentifiableMap<K, E> entities, M msg);
 }
-
-/// The common case: a registry of [Identity] entities keyed by their String id.
-/// Reach for [Registry] directly only when the key is not the String id.
-typedef Store<E extends Identity, M extends Msg> = Registry<String, E, M>;
 
 /// One in-flight optimistic prediction: the message to re-fold over the base,
 /// tagged by the correlation id that will confirm or roll it back. Keyless — a
@@ -99,7 +110,7 @@ class _Pending<M> {
   final M msg;
 }
 
-/// The live store for a [Registry]: a confirmed BASE (`identifiable.Store`) plus
+/// The live store for a [Store]: a confirmed BASE (`identifiable.Store`) plus
 /// a provenance/stability flags sidecar, driven off a [Bus] — and an OPTIMISTIC
 /// OVERLAY on top.
 ///
@@ -110,8 +121,8 @@ class _Pending<M> {
 /// correlation id CONFIRMS it (drop the overlay, apply the real effect to base);
 /// [rollback] discards it. Because predictions never touch base, a rollback
 /// after a superseding write keeps the superseding write — see the test.
-class RegistryMemory<K, E extends Identifiable<K>, M extends Msg> {
-  RegistryMemory(this._reg, Bus bus) {
+class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
+  StoreMemory(this._reg, Bus bus) {
     _sub = bus.on<M>(_apply);
     // a disconnect loses the push freshness guarantee → confirmed entries stale.
     _connSub = bus.connection.listen((up) {
@@ -119,16 +130,16 @@ class RegistryMemory<K, E extends Identifiable<K>, M extends Msg> {
     });
   }
 
-  final Registry<K, E, M> _reg;
-  IdentifiableMap<E, K> _base = {}; // confirmed truth only
-  IdentifiableMap<E, K> _eff = {}; // base folded through pending overlays (cache)
+  final Store<K, E, M> _reg;
+  IdentifiableMap<K, E> _base = {}; // confirmed truth only
+  IdentifiableMap<K, E> _eff = {}; // base folded through pending overlays (cache)
   final Map<K, Flags> _flags = {};
   final List<_Pending<M>> _pending = []; // ordered optimistic overlays
   final StreamController<K> _changes = StreamController<K>.broadcast(sync: true);
   late final StreamSubscription<Envelope> _sub;
   late final StreamSubscription<bool> _connSub;
 
-  Set<K> _diff(IdentifiableMap<E, K> a, IdentifiableMap<E, K> b) => {
+  Set<K> _diff(IdentifiableMap<K, E> a, IdentifiableMap<K, E> b) => {
         for (final k in {...a.keys, ...b.keys})
           if (!identical(a[k], b[k])) k
       };
@@ -179,8 +190,12 @@ class RegistryMemory<K, E extends Identifiable<K>, M extends Msg> {
     _refresh(const {});
   }
 
+  /// The EFFECTIVE identity-map (base folded through the pending optimistic
+  /// overlays) — the whole keyed collection.
+  IdentifiableMap<K, E> get entities => _eff;
+
   /// The EFFECTIVE value at [key]: confirmed base folded through the pending
-  /// optimistic overlays.
+  /// optimistic overlays — this is what canon reads by nav id.
   E? operator [](K key) => _eff[key];
 
   /// The CONFIRMED value at [key] — base only, ignoring overlays.

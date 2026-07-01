@@ -2,10 +2,9 @@ import 'dart:async';
 
 import 'package:identifiable/identifiable.dart';
 
-import 'connection_store.dart';
 import 'envelope.dart';
 import 'msg.dart';
-import 'registry.dart';
+import 'store.dart';
 
 /// The cohesive entry point: a JOURNAL (the complete, ungated record every
 /// message lands in) and POSTING (guards decide what becomes state). Registries
@@ -14,7 +13,7 @@ import 'registry.dart';
 /// buffer / debug) but never reaches state — "control without dirtying".
 ///
 /// Dispatch onto the journal (`dispatch`), tap the journal for a complete feed
-/// (`journal`), and register stores via `registry` / `connection`.
+/// (`journal`), and register stores via `store`.
 class Ledger {
   Ledger() {
     // forward EVERY journal message through the posting guards to the registries.
@@ -93,22 +92,13 @@ class Ledger {
   /// Report transport connection state (drives stability on every store).
   void setConnected(bool value) => journal.setConnected(value);
 
-  /// A live store for [reg], driven off the post-guard stream.
-  RegistryMemory<K, E, M> registry<K, E extends Identifiable<K>, M extends Msg>(
-      Registry<K, E, M> reg) {
-    final store = RegistryMemory<K, E, M>(reg, _posted);
-    _rollbacks.add(store.rollback);
-    _disposers.add(store.dispose);
-    return store;
-  }
-
-  /// A live connection family for [reg], driven off the post-guard stream.
-  ConnectionMemory<K, T, I, SK, M> connection<K, T extends Identifiable<I>, I,
-      SK extends Comparable<Object?>, M extends Msg>(
-      ConnectionRegistry<K, T, I, SK, M> reg) {
-    final store = ConnectionMemory<K, T, I, SK, M>(reg, _posted);
-    _disposers.add(store.dispose);
-    return store;
+  /// A live store for [spec], driven off the post-guard stream.
+  StoreMemory<K, E, M> store<K, E extends Identifiable<K>, M extends Msg>(
+      Store<K, E, M> spec) {
+    final mem = StoreMemory<K, E, M>(spec, _posted);
+    _rollbacks.add(mem.rollback);
+    _disposers.add(mem.dispose);
+    return mem;
   }
 
   void close() {

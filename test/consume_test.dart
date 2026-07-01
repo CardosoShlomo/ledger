@@ -19,11 +19,11 @@ class _Set extends _DocMsg with Identifiable<String> {
   final String text;
 }
 
-final class _Docs extends Registry<String, _Doc, _DocMsg> {
+final class _Docs extends Store<String, _Doc, _DocMsg> {
   const _Docs();
   @override
-  IdentifiableMap<_Doc, String> reduce(
-          IdentifiableMap<_Doc, String> entities, _DocMsg m) =>
+  IdentifiableMap<String, _Doc> reduce(
+          IdentifiableMap<String, _Doc> entities, _DocMsg m) =>
       switch (m) {
         _Set(:final id, :final text) => entities.upsert(_Doc(id, text)),
       };
@@ -32,7 +32,7 @@ final class _Docs extends Registry<String, _Doc, _DocMsg> {
 void main() {
   test('watch is value-distinct: a flag-only change emits nothing', () async {
     final bus = Bus();
-    final store = RegistryMemory(const _Docs(), bus);
+    final store = StoreMemory(const _Docs(), bus);
     bus.dispatch(_Set('a', 'hi'));
 
     final seen = <String?>[];
@@ -49,7 +49,7 @@ void main() {
 
   test('watchStatus is flag-distinct: emits stability transitions only', () async {
     final bus = Bus();
-    final store = RegistryMemory(const _Docs(), bus);
+    final store = StoreMemory(const _Docs(), bus);
     bus.dispatch(_Set('a', 'hi'));
 
     final seen = <Stability?>[];
@@ -67,7 +67,7 @@ void main() {
 
   test('watch only fires for ITS key', () async {
     final bus = Bus();
-    final store = RegistryMemory(const _Docs(), bus);
+    final store = StoreMemory(const _Docs(), bus);
 
     final seen = <String?>[];
     final sub = store.consume('a').listen((d) => seen.add(d?.text));

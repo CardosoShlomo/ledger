@@ -25,11 +25,11 @@ class _Reset extends _CountMsg with Identifiable<String> {
   final String id;
 }
 
-final class _Counter extends Registry<String, _CountState, _CountMsg> {
+final class _Counter extends Store<String, _CountState, _CountMsg> {
   const _Counter();
   @override
-  IdentifiableMap<_CountState, String> reduce(
-          IdentifiableMap<_CountState, String> entities, _CountMsg m) =>
+  IdentifiableMap<String, _CountState> reduce(
+          IdentifiableMap<String, _CountState> entities, _CountMsg m) =>
       switch (m) {
         _Inc(:final id, :final by) =>
           entities.upsert(_CountState(id, (entities[id]?.value ?? 0) + by)),
@@ -41,7 +41,7 @@ void main() {
   test('journal records everything; a posting guard gates what becomes state',
       () {
     final ledger = Ledger();
-    final counter = ledger.registry(const _Counter());
+    final counter = ledger.store(const _Counter());
 
     final journalSeen = <Object>[];
     ledger.journal.on<Msg>((m, e) => journalSeen.add(m));
@@ -57,7 +57,7 @@ void main() {
 
   test('a registered registry receives posted messages and stamps stability', () {
     final ledger = Ledger();
-    final counter = ledger.registry(const _Counter());
+    final counter = ledger.store(const _Counter());
     ledger.dispatch(_Inc('a', 3));
     expect(counter['a']?.value, 3);
     expect(counter.flagsOf('a')?.stability, Stability.confirmed);
@@ -65,7 +65,7 @@ void main() {
 
   test('connection state flows through to the stores', () {
     final ledger = Ledger();
-    final counter = ledger.registry(const _Counter());
+    final counter = ledger.store(const _Counter());
     ledger.dispatch(_Inc('a', 1));
     ledger.setConnected(false); // disconnect → confirmed entries go stale
     expect(counter.flagsOf('a')?.stability, Stability.stale);
@@ -73,7 +73,7 @@ void main() {
 
   test('close disposes the stores it created', () async {
     final ledger = Ledger();
-    final counter = ledger.registry(const _Counter());
+    final counter = ledger.store(const _Counter());
     var disposed = false;
     // The store's change stream completes only when its controller is closed —
     // which `dispose` does, so a `done` here proves `close` fanned out to it.

@@ -15,18 +15,18 @@ class _Add extends Msg with Identifiable<String> {
   final int by;
 }
 
-final class _Counter extends Registry<String, _Count, _Add> {
+final class _Counter extends Store<String, _Count, _Add> {
   const _Counter();
   @override
-  IdentifiableMap<_Count, String> reduce(
-          IdentifiableMap<_Count, String> states, _Add m) =>
+  IdentifiableMap<String, _Count> reduce(
+          IdentifiableMap<String, _Count> states, _Add m) =>
       states.upsert(_Count(m.id, (states[m.id]?.value ?? 0) + m.by));
 }
 
 void main() {
   test('command: effect resolves with the confirming msg → overlay promoted', () async {
     final ledger = Ledger();
-    final store = ledger.registry(const _Counter());
+    final store = ledger.store(const _Counter());
 
     await ledger.command(_Add('a', 5), effect: () async => _Add('a', 5));
 
@@ -37,7 +37,7 @@ void main() {
 
   test('command: effect throws → overlay rolled back, base untouched', () async {
     final ledger = Ledger();
-    final store = ledger.registry(const _Counter());
+    final store = ledger.store(const _Counter());
 
     await expectLater(
       ledger.command(_Add('a', 5), effect: () async => throw StateError('net')),
@@ -50,7 +50,7 @@ void main() {
 
   test('command: push transport (effect returns null) leaves promotion to inbound', () async {
     final ledger = Ledger();
-    final store = ledger.registry(const _Counter());
+    final store = ledger.store(const _Counter());
 
     final cid = await ledger.command(_Add('a', 5), effect: () async => null);
     expect(store['a']?.value, 5); // overlay visible, still pending
