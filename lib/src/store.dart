@@ -161,6 +161,8 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   final Map<K, Flags> _flags = {};
   final List<_Pending<M>> _pending = []; // ordered optimistic overlays
   final StreamController<K> _changes = StreamController<K>.broadcast(sync: true);
+  final StreamController<void> _structure =
+      StreamController<void>.broadcast(sync: true);
   late final StreamSubscription<Envelope> _sub;
   late final StreamSubscription<bool> _connSub;
 
@@ -169,8 +171,19 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
           if (!identical(a[k], b[k])) k
       };
 
-  /// Recompute the effective map (base folded through every pending message) and
-  /// emit the keys whose effective value changed, unioned with [extra].
+  bool _sameKeys(IdentifiableMap<K, E> a, IdentifiableMap<K, E> b) {
+    if (a.length != b.length) return false;
+    final ia = a.keys.iterator, ib = b.keys.iterator;
+    while (ia.moveNext() && ib.moveNext()) {
+      if (ia.current != ib.current) return false;
+    }
+    return true;
+  }
+
+  /// Recompute the effective map (base folded through every pending message),
+  /// emit the keys whose effective value changed (unioned with [extra]), and
+  /// signal [structure] when the key sequence itself changed — decided ONCE
+  /// here, where both maps are in hand, so no listener ever diffs.
   void _refresh(Set<K> extra) {
     final prev = _eff;
     var m = _base;
@@ -181,6 +194,7 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
     for (final k in {..._diff(prev, m), ...extra}) {
       _changes.add(k);
     }
+    if (!_sameKeys(prev, m)) _structure.add(null);
   }
 
   void _apply(M msg, Envelope env) {
@@ -284,6 +298,11 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   /// rollback. Surgical, per key. (Also fires on flag-only changes; use [consume]
   /// for a value-distinct stream, [watchStatus] for a flag-distinct one.)
   Stream<K> get changes => _changes.stream;
+
+  /// Fires when the key SEQUENCE changed (add / remove / reorder) — the
+  /// list-shape feed. Value-only changes never fire here: a list watching this
+  /// rebuilds exactly on membership/order, with no diffing downstream.
+  Stream<void> get structure => _structure.stream;
 
   final Map<K, int> _watchers = {}; // active consumers per key (Door 1 refcount)
 
