@@ -5,8 +5,10 @@ import 'package:identifiable/identifiable.dart';
 import 'envelope.dart';
 import 'msg.dart';
 
-/// Marks the spec enum canon's generator reads: each row holds a [Store] plus the
-/// `@ids` node it is keyed by. The generator emits the typed, nav-injected surface.
+/// Marks the spec enum canon's generator reads: each row holds a [Store] — the
+/// two things no grammar derives: THAT this collection exists, and its reduce.
+/// Everything else (key node, key type, tree machinery, screen associations)
+/// derives from the `@entities` graph via the store's entity type `E`.
 class Stores {
   const Stores();
 }
@@ -14,10 +16,10 @@ class Stores {
 /// The arg-less default.
 const stores = Stores();
 
-/// The contract the `@stores` enum wears: every row binds an [Ids] node as its
-/// [key]. Generic over [Ids] so it stays free of any concrete identity space.
-mixin StoreNode<Self extends StoreNode<Self, Ids>, Ids> on Enum {
-  Ids get key;
+/// The contract the `@stores` enum wears: a row is a held [Store] instance,
+/// nothing more (`ads(Ads())`).
+mixin StoreNode<Self extends StoreNode<Self>> on Enum {
+  Store get store;
 }
 
 /// A PURE interceptor in the dispatch pipeline: inspect/transform an envelope,
