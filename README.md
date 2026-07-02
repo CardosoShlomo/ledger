@@ -13,6 +13,23 @@ The structure prevents most failure modes; message taxonomy discipline prevents 
 - **One sealed family per entity concern.** The family (`AdListMsg`, `ProfileMsg`) is exactly what one store reduces — `sealed`, so the reduce is exhaustively matched and a new variant is a compile error until every store answers it.
 - **Guards are pure.** A guard may read state, transform, or veto — never dispatch or touch the world. Side effects belong in subscribers (`on<M>`). Register guards centrally, in one ordered setup: the pipeline order IS semantics.
 
+## Store keys are gradually typed
+
+A store's key type may be the raw codec type or the id's generated extension
+type — both are always valid, and they are runtime-identical (extension types
+erase):
+
+```dart
+class Products extends Store<String, Product, ProductMsg> { … }     // day one
+class Products extends Store<ProductId, Product, ProductMsg> { … }  // hardened
+```
+
+Write `String` before the first generation exists (nothing else compiles yet);
+tighten to `ProductId` whenever you like — or never. The typed key buys exactly
+one thing: nominal protection on the store's key axis (`products[someUserId]`
+stops compiling). Everything else — verbs, entity fields, derived reads — is
+typed independently and works the same either way.
+
 ## Guards
 
 Typed like `on<M>` — a guard sees one family; everything else passes through untouched:
