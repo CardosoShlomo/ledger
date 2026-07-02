@@ -38,6 +38,11 @@ class Bus {
   final StreamController<Envelope> _controller =
       StreamController<Envelope>.broadcast(sync: true);
   final List<Guard<Msg>> _guards = [];
+  // Re-entrant dispatches (an effect dispatching from within delivery — the
+  // normal message → effect → message pattern) queue here and drain in order;
+  // a sync broadcast controller throws on a mid-delivery add.
+  final List<Envelope> _queued = [];
+  bool _firing = false;
 
   /// Register a pure guard for the [M] family. Runs on every dispatch, in
   /// registration order; a non-[M] envelope passes through unchanged.
@@ -60,7 +65,20 @@ class Bus {
       if (next == null) return; // vetoed
       env = next;
     }
-    _controller.add(env);
+    if (_firing) {
+      _queued.add(env);
+      return;
+    }
+    _firing = true;
+    try {
+      _controller.add(env);
+      while (_queued.isNotEmpty) {
+        _controller.add(_queued.removeAt(0));
+      }
+    } finally {
+      _firing = false;
+      _queued.clear();
+    }
   }
 
   /// Subscribe to messages of type [M]. Returns the subscription to cancel.

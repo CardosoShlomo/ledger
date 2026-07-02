@@ -74,6 +74,18 @@ void main() {
     expect(counter.flagsOf('a')?.stability, Stability.stale);
   });
 
+  test('an effect may dispatch from within delivery (re-entrant queues)', () {
+    final ledger = Ledger();
+    final counter = ledger.store(const _Counter());
+    // message → effect → message: the normal bus pattern. The re-entrant
+    // dispatch queues and drains in order instead of blowing the sync stream.
+    ledger.on<_Inc>((msg, env) {
+      if (msg.by == 5) ledger.dispatch(_Inc('a', 1));
+    });
+    ledger.dispatch(_Inc('a', 5));
+    expect(counter['a']?.value, 6);
+  });
+
   test('close disposes the stores it created', () async {
     final ledger = Ledger();
     final counter = ledger.store(const _Counter());
