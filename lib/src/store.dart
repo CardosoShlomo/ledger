@@ -136,6 +136,35 @@ abstract class Store<K, E extends Identifiable<K>, M extends Msg>
   /// `entities.upsert(x)` · `entities.upsertAll(xs)` · `entities.removeById(id)`
   /// · `entities.updateById(id, (cur) => …)`.
   IdentifiableMap<K, E> reduce(IdentifiableMap<K, E> entities, M msg);
+
+  /// The store's correlation twin: relates it to the REQUEST family whose
+  /// facts put keys in flight (key-correlated status — the key IS the
+  /// correlation). Null when the store has no requests.
+  Awaits<K, Msg>? get awaits => null;
+}
+
+/// The correlation twin of a [Store]: names the request family [R] (kept OUT
+/// of the store's reduce family, so reduces never carry dead request arms)
+/// and extracts the key a request puts in flight. Holds no state — the
+/// status lives in the data store's sidecar; this spec only feeds it.
+abstract class Awaits<K, R extends Msg> {
+  const Awaits();
+
+  /// The key [request] puts in flight — exhaustive over the sealed family.
+  K keyOf(R request);
+
+  /// Engine-facing: the in-flight key stream. [R] is reified here, where the
+  /// twin knows its own family — the data store never names it.
+  Stream<K> keys(Bus bus) => bus.on<R>().map(keyOf);
+}
+
+/// The unit form: ANY [R] fact puts the unit in flight (a unit has one key —
+/// itself), and any fact of the unit's reduce family clears it. [R] must not
+/// be part of the reduce family, or it would clear itself.
+final class AwaitsUnit<R extends Msg> {
+  const AwaitsUnit();
+
+  Stream<void> events(Bus bus) => bus.on<R>().map((_) {});
 }
 
 /// The UNIT sibling of [Store]: one value, cardinality one — for entities
@@ -149,33 +178,52 @@ abstract class ValueStore<S, M extends Msg> implements AnyStore {
 
   /// Fold a message into the value and return the NEXT value. PURE.
   S reduce(S state, M msg);
+
+  /// The unit's correlation twin — its request family's facts put the unit
+  /// in flight; any reduce-family fact clears it.
+  AwaitsUnit<Msg>? get awaits => null;
 }
 
 /// The live memory for a [ValueStore]: the value driven off a [Bus].
 class ValueMemory<S, M extends Msg> {
   ValueMemory(this._spec, Bus bus) : _value = _spec.initial {
     _sub = bus.on<M>().listen((msg) {
+      // any reduce-family fact resolves an outstanding request.
+      final cleared = _loading;
+      _loading = false;
       final next = _spec.reduce(_value, msg);
-      if (identical(next, _value)) return;
+      if (identical(next, _value) && !cleared) return;
       _value = next;
+      _changes.add(null);
+    });
+    _awaitsSub = _spec.awaits?.events(bus).listen((_) {
+      if (_loading) return;
+      _loading = true;
       _changes.add(null);
     });
   }
 
   final ValueStore<S, M> _spec;
   S _value;
+  bool _loading = false;
   final StreamController<void> _changes =
       StreamController<void>.broadcast(sync: true);
   late final StreamSubscription<Object?> _sub;
+  late final StreamSubscription<void>? _awaitsSub;
 
   /// The value, now.
   S get value => _value;
+
+  /// True while a request fact awaits its answer (any non-request family
+  /// fact clears it).
+  bool get loading => _loading;
 
   /// Fires on every value change.
   Stream<void> get changes => _changes.stream;
 
   void dispose() {
     _sub.cancel();
+    _awaitsSub?.cancel();
     _changes.close();
   }
 }
@@ -203,6 +251,9 @@ class _Pending<M> {
 class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   StoreMemory(this._reg, Bus bus) {
     _sub = bus.envelopesOf<M>().listen((r) => _apply(r.$1, r.$2));
+    // the correlation twin: request facts mark their key loading; the next
+    // fold that touches the key confirms it (see _apply).
+    _awaitsSub = _reg.awaits?.keys(bus).listen(markLoading);
     // a disconnect loses the push freshness guarantee → confirmed entries stale.
     _connSub = bus.connection.listen((up) {
       if (!up) invalidateAll();
@@ -218,6 +269,7 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   final StreamController<void> _structure =
       StreamController<void>.broadcast(sync: true);
   late final StreamSubscription<Object?> _sub;
+  late final StreamSubscription<K>? _awaitsSub;
   late final StreamSubscription<bool> _connSub;
 
   Set<K> _diff(IdentifiableMap<K, E> a, IdentifiableMap<K, E> b) => {
@@ -322,6 +374,9 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   /// A fetch is in flight for [key] — the screen-entry trigger calls this when
   /// it fires a load. The value (if any) stays; stability becomes `loading`.
   void markLoading(K key) => _setStability(key, Stability.loading);
+
+  /// True while a request fact for [key] awaits its answer.
+  bool inFlight(K key) => flagsOf(key)?.stability == Stability.loading;
 
   /// A fetch for [key] errored.
   void markFailed(K key) => _setStability(key, Stability.failed);
@@ -451,6 +506,7 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
 
   void dispose() {
     _sub.cancel();
+    _awaitsSub?.cancel();
     _connSub.cancel();
     _changes.close();
   }
