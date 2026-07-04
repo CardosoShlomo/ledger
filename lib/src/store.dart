@@ -132,7 +132,10 @@ class Bus {
 /// store ([StoreMemory]) is created separately and wired to a [Bus].
 abstract class Store<K, E extends Identifiable<K>, M extends Msg>
     implements AnyStore {
-  const Store();
+  const Store([this.initial = const {}]);
+
+  /// The collection before any fact has arrived — empty unless seeded.
+  final IdentifiableMap<K, E> initial;
 
   /// Fold a message into the registry's keyed collection and return the NEXT
   /// collection. PURE — replayed on optimistic confirm/rollback, so no side
@@ -266,8 +269,8 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   }
 
   final Store<K, E, M> _reg;
-  IdentifiableMap<K, E> _base = {}; // confirmed truth only
-  IdentifiableMap<K, E> _eff = {}; // base folded through pending overlays (cache)
+  late IdentifiableMap<K, E> _base = _reg.initial; // confirmed truth only
+  late IdentifiableMap<K, E> _eff = _reg.initial; // base folded through pending overlays (cache)
   final Map<K, Flags> _flags = {};
   final List<_Pending<M>> _pending = []; // ordered optimistic overlays
   final StreamController<K> _changes = StreamController<K>.broadcast(sync: true);
