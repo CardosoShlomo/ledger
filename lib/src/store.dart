@@ -54,6 +54,11 @@ class Bus {
   void guard<M extends Msg>(Guard<M> g) => _guards
       .add((msg, env) => msg is M ? g(msg, env) : env);
 
+  /// The predicate form of [guard]: TRUE vetoes (the message is dropped),
+  /// false passes it untouched.
+  void veto<M extends Msg>(bool Function(M msg) test) =>
+      guard<M>((msg, env) => test(msg) ? null : env);
+
   /// Push a message through the bus. `source` tags provenance (defaults to the
   /// common remote/optimistic); `optimistic` is the overlay-routing signal — an
   /// optimistic dispatch flows through the SAME subscribers as a remote one but
