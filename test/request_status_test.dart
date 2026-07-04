@@ -56,7 +56,7 @@ class _Feed extends _FeedMsg {
   final List<String> items;
 }
 
-final class _FeedUnit extends ValueStore<List<String>, _FeedMsg> {
+final class _FeedUnit extends Unit<List<String>, _FeedMsg> {
   const _FeedUnit() : super(const []);
 
   @override
@@ -96,7 +96,7 @@ void main() {
 
   test('unit: request sets loading, any reduce-family fact clears it', () {
     final bus = Bus();
-    final feed = ValueMemory(const _FeedUnit(), bus);
+    final feed = UnitMemory(const _FeedUnit(), bus);
 
     expect(feed.loading, isFalse);
     bus.dispatch(_Refresh());
@@ -108,7 +108,7 @@ void main() {
 
   test('unit: flag flips alone emit changes', () {
     final bus = Bus();
-    final feed = ValueMemory(const _FeedUnit(), bus);
+    final feed = UnitMemory(const _FeedUnit(), bus);
     var emits = 0;
     feed.changes.listen((_) => emits++);
 

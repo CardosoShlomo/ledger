@@ -50,7 +50,7 @@ class _Self with Identifiable<String> {
   final String bio;
 }
 
-final class _SelfUnit extends ValueStore<_Self?, _SelfMsg> {
+final class _SelfUnit extends Unit<_Self?, _SelfMsg> {
   const _SelfUnit() : super(null);
 
   @override
@@ -74,7 +74,7 @@ void main() {
   test('the claimed key routes to the projection, even on a cold store', () {
     final bus = Bus();
     final users = StoreMemory(const _Users(), bus);
-    final self = ValueMemory(const _SelfUnit(), bus);
+    final self = UnitMemory(const _SelfUnit(), bus);
     users.merge(self, const _SelfSupportsUser());
 
     expect(users['me'], isNull); // no source yet — the row stands (absent)
@@ -91,7 +91,7 @@ void main() {
   test('collection reads stay honest — no phantom rows', () {
     final bus = Bus();
     final users = StoreMemory(const _Users(), bus);
-    final self = ValueMemory(const _SelfUnit(), bus);
+    final self = UnitMemory(const _SelfUnit(), bus);
     users.merge(self, const _SelfSupportsUser());
 
     bus.dispatch(_SignedIn('me', 'Me', 'hi'));
@@ -102,7 +102,7 @@ void main() {
   test('a source change re-announces exactly the claimed keys', () {
     final bus = Bus();
     final users = StoreMemory(const _Users(), bus);
-    final self = ValueMemory(const _SelfUnit(), bus);
+    final self = UnitMemory(const _SelfUnit(), bus);
     users.merge(self, const _SelfSupportsUser());
     final announced = <String>[];
     users.changes.listen(announced.add);

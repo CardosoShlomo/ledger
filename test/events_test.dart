@@ -43,7 +43,7 @@ class _Go extends _FlowMsg {}
 
 class _Stop extends _FlowMsg {}
 
-final class _Flow extends ValueStore<String, _FlowMsg> {
+final class _Flow extends Unit<String, _FlowMsg> {
   const _Flow() : super('idle');
 
   @override
@@ -81,7 +81,7 @@ void main() {
   test('unit events carry before/after — transition filters need no dedupe',
       () {
     final bus = Bus();
-    final flow = ValueMemory(const _Flow(), bus);
+    final flow = UnitMemory(const _Flow(), bus);
     final transitions = <(String, String)>[];
     flow.events
         .where((e) => e.before != e.after)

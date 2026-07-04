@@ -22,7 +22,7 @@ mixin StoreNode<Self extends StoreNode<Self>> on Enum {
   AnyStore get store;
 }
 
-/// What a `@stores` row may hold: a keyed [Store] or a unit [ValueStore].
+/// What a `@stores` row may hold: a keyed [Store] or a [Unit].
 abstract interface class AnyStore {}
 
 /// A PURE interceptor in the dispatch pipeline: inspect/transform an envelope,
@@ -80,8 +80,8 @@ abstract base class Projection<S extends Identifiable<K>, K, E> {
 }
 
 /// The unit form of [StoreEvent].
-final class ValueEvent<S, M extends Msg> {
-  const ValueEvent({required this.msg, required this.before, required this.after});
+final class UnitEvent<S, M extends Msg> {
+  const UnitEvent({required this.msg, required this.before, required this.after});
 
   final M msg;
   final S before;
@@ -245,8 +245,8 @@ final class AwaitsUnit<R extends Msg> {
 /// The UNIT sibling of [Store]: one value, cardinality one — for entities
 /// whose identity is the session (the wire sends their facts KEYLESS: a
 /// viewer profile, a requests+unseen state). Same purity contract.
-abstract class ValueStore<S, M extends Msg> implements AnyStore {
-  const ValueStore(this.initial);
+abstract class Unit<S, M extends Msg> implements AnyStore {
+  const Unit(this.initial);
 
   /// The value before any fact has arrived.
   final S initial;
@@ -259,9 +259,9 @@ abstract class ValueStore<S, M extends Msg> implements AnyStore {
   AwaitsUnit<Msg>? get awaits => null;
 }
 
-/// The live memory for a [ValueStore]: the value driven off a [Bus].
-class ValueMemory<S, M extends Msg> {
-  ValueMemory(this._spec, Bus bus) : _value = _spec.initial {
+/// The live memory for a [Unit]: the value driven off a [Bus].
+class UnitMemory<S, M extends Msg> {
+  UnitMemory(this._spec, Bus bus) : _value = _spec.initial {
     _sub = bus.on<M>().listen((msg) {
       // any reduce-family fact resolves an outstanding request.
       final cleared = _loading;
@@ -270,7 +270,7 @@ class ValueMemory<S, M extends Msg> {
       final next = _spec.reduce(before, msg);
       _value = next;
       if (!identical(next, before) || cleared) _changes.add(null);
-      _events.add(ValueEvent(msg: msg, before: before, after: next));
+      _events.add(UnitEvent(msg: msg, before: before, after: next));
     });
     _awaitsSub = _spec.awaits?.events(bus).listen((_) {
       if (_loading) return;
@@ -279,13 +279,13 @@ class ValueMemory<S, M extends Msg> {
     });
   }
 
-  final ValueStore<S, M> _spec;
+  final Unit<S, M> _spec;
   S _value;
   bool _loading = false;
   final StreamController<void> _changes =
       StreamController<void>.broadcast(sync: true);
-  final StreamController<ValueEvent<S, M>> _events =
-      StreamController<ValueEvent<S, M>>.broadcast(sync: true);
+  final StreamController<UnitEvent<S, M>> _events =
+      StreamController<UnitEvent<S, M>>.broadcast(sync: true);
   late final StreamSubscription<Object?> _sub;
   late final StreamSubscription<void>? _awaitsSub;
 
@@ -302,7 +302,7 @@ class ValueMemory<S, M extends Msg> {
   /// The fold's full story, post-reduce — one event per delivered family
   /// message (a no-op fold still emits: msg-type filters see the family
   /// completely). Transition listeners filter on a before/after delta.
-  Stream<ValueEvent<S, M>> get events => _events.stream;
+  Stream<UnitEvent<S, M>> get events => _events.stream;
 
   void dispose() {
     _sub.cancel();
@@ -462,7 +462,7 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   /// skipped while the source state is null. Declaration order = resolution
   /// order (later edges see earlier answers).
   void merge<S extends Identifiable<K>>(
-      ValueMemory<S?, Msg> source, Projection<S, K, E> projection) {
+      UnitMemory<S?, Msg> source, Projection<S, K, E> projection) {
     final edge = _MergeEdge<K, E>(
       () {
         final s = source.value;
