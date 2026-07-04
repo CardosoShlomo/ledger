@@ -34,6 +34,38 @@ abstract interface class AnyStore {}
 /// envelope passes through it untouched; the default `M = Msg` sees the feed.
 typedef Guard<M extends Msg> = Envelope? Function(M msg, Envelope env);
 
+/// One fold's full story, emitted by a store AFTER the reduce ran: the cause
+/// and its consequence, atomically — an effect filtering these can never race
+/// the fold. Filters recover every narrower feed: `structural` (the list
+/// shell), `changed.contains(id)` (per key), a before/after delta (state
+/// TRANSITIONS), a msg-type check (post-fold message observation).
+final class StoreEvent<K, E extends Identifiable<K>, M extends Msg> {
+  const StoreEvent({
+    required this.msg,
+    required this.env,
+    required this.before,
+    required this.after,
+    required this.changed,
+    required this.structural,
+  });
+
+  final M msg;
+  final Envelope env;
+  final IdentifiableMap<K, E> before;
+  final IdentifiableMap<K, E> after;
+  final Set<K> changed;
+  final bool structural;
+}
+
+/// The unit form of [StoreEvent].
+final class ValueEvent<S, M extends Msg> {
+  const ValueEvent({required this.msg, required this.before, required this.after});
+
+  final M msg;
+  final S before;
+  final S after;
+}
+
 /// The message bus — the RICH tier's transport. Dispatch envelopes through
 /// guards to typed subscribers. Transport-agnostic: feed it from WS, HTTP, a
 /// local DB, or a local optimistic `dispatch(..., optimistic: true)`.
@@ -199,10 +231,11 @@ class ValueMemory<S, M extends Msg> {
       // any reduce-family fact resolves an outstanding request.
       final cleared = _loading;
       _loading = false;
-      final next = _spec.reduce(_value, msg);
-      if (identical(next, _value) && !cleared) return;
+      final before = _value;
+      final next = _spec.reduce(before, msg);
       _value = next;
-      _changes.add(null);
+      if (!identical(next, before) || cleared) _changes.add(null);
+      _events.add(ValueEvent(msg: msg, before: before, after: next));
     });
     _awaitsSub = _spec.awaits?.events(bus).listen((_) {
       if (_loading) return;
@@ -216,6 +249,8 @@ class ValueMemory<S, M extends Msg> {
   bool _loading = false;
   final StreamController<void> _changes =
       StreamController<void>.broadcast(sync: true);
+  final StreamController<ValueEvent<S, M>> _events =
+      StreamController<ValueEvent<S, M>>.broadcast(sync: true);
   late final StreamSubscription<Object?> _sub;
   late final StreamSubscription<void>? _awaitsSub;
 
@@ -229,10 +264,16 @@ class ValueMemory<S, M extends Msg> {
   /// Fires on every value change.
   Stream<void> get changes => _changes.stream;
 
+  /// The fold's full story, post-reduce — one event per delivered family
+  /// message (a no-op fold still emits: msg-type filters see the family
+  /// completely). Transition listeners filter on a before/after delta.
+  Stream<ValueEvent<S, M>> get events => _events.stream;
+
   void dispose() {
     _sub.cancel();
     _awaitsSub?.cancel();
     _changes.close();
+    _events.close();
   }
 }
 
@@ -276,6 +317,8 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   final StreamController<K> _changes = StreamController<K>.broadcast(sync: true);
   final StreamController<void> _structure =
       StreamController<void>.broadcast(sync: true);
+  final StreamController<StoreEvent<K, E, M>> _events =
+      StreamController<StoreEvent<K, E, M>>.broadcast(sync: true);
   late final StreamSubscription<Object?> _sub;
   late final StreamSubscription<K>? _awaitsSub;
   late final StreamSubscription<bool> _connSub;
@@ -312,10 +355,12 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   }
 
   void _apply(M msg, Envelope env) {
+    final prevEff = _eff;
     // optimistic + correlationId → a pending overlay; base is NOT touched.
     if (env.optimistic && env.correlationId != null) {
       _pending.add(_Pending(env.correlationId!, msg));
       _refresh(const {});
+      _emit(msg, env, prevEff);
       return;
     }
     // a confirmed/remote message carrying a pending correlation id CONFIRMS it:
@@ -333,7 +378,26 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
       }
     }
     _refresh(touched);
+    _emit(msg, env, prevEff);
   }
+
+  // ONE event per delivered family message — even a no-op fold emits, so a
+  // msg-type filter is a complete post-fold observation of the family.
+  void _emit(M msg, Envelope env, IdentifiableMap<K, E> prevEff) {
+    _events.add(StoreEvent(
+      msg: msg,
+      env: env,
+      before: prevEff,
+      after: _eff,
+      changed: _diff(prevEff, _eff),
+      structural: !_sameKeys(prevEff, _eff),
+    ));
+  }
+
+  /// The fold's full story, post-reduce: (cause, consequence) atomically —
+  /// the ONE stream effects subscribe to (filters recover every narrower
+  /// feed). Rollbacks emit no event (no message caused them).
+  Stream<StoreEvent<K, E, M>> get events => _events.stream;
 
   /// Discard the optimistic overlay(s) for [correlationId] — the prediction
   /// failed (timeout/reject). Base is untouched, so any superseding writes that
@@ -517,6 +581,7 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
     _awaitsSub?.cancel();
     _connSub.cancel();
     _changes.close();
+    _events.close();
   }
 }
 
