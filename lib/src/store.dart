@@ -57,6 +57,28 @@ final class StoreEvent<K, E extends Identifiable<K>, M extends Msg> {
   final bool structural;
 }
 
+/// A READ RESOLVER for a merge edge (`user.merge(viewer, const
+/// ViewerSupportsUser())` in the entities graph): the SOURCE store's state
+/// answers the TARGET surface's per-key reads at the source's OWN identity —
+/// `S extends Identifiable<K>` IS the claim; there is no key method anywhere.
+///
+/// The id comparison lives in the engine — never in consumer code and never
+/// in [resolve]'s body: [resolve] runs only when the read matches
+/// `source.id`, so it merges unconditionally. The edge is skipped while the
+/// source state is absent; [row] is the target's own row (null on a cold
+/// store — the projection still answers, which is how a self read works
+/// before anyone loaded the crowd row). Edges compose in declaration order.
+///
+/// Scope: per-key surfaces only (`store[id]`, `store(id)`, consume, the UI
+/// layer's `.of`/EntityScope). `entities`/`values` stay honest rows — a
+/// projection never appears in collection iteration, and reduces never see it.
+abstract base class Projection<S extends Identifiable<K>, K, E> {
+  const Projection();
+
+  /// The answer at the source's own key — called only when the read matches.
+  E resolve(E? row, S source);
+}
+
 /// The unit form of [StoreEvent].
 final class ValueEvent<S, M extends Msg> {
   const ValueEvent({required this.msg, required this.before, required this.after});
@@ -277,6 +299,14 @@ class ValueMemory<S, M extends Msg> {
   }
 }
 
+/// One wired merge edge, type-erased for heterogeneous sources: [claim]
+/// answers (claimed key, source state) or null while the source is absent.
+class _MergeEdge<K, E> {
+  _MergeEdge(this.claim, this.resolve);
+  final (K, Object)? Function() claim;
+  final E Function(E? row, Object source) resolve;
+}
+
 /// One in-flight optimistic prediction: the message to re-fold over the base,
 /// tagged by the correlation id that will confirm or roll it back. Keyless — a
 /// prediction may touch any number of entries, discovered by diffing.
@@ -407,13 +437,58 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
     _refresh(const {});
   }
 
+  // ── Merge edges (read resolvers) ──────────────────────────────────────
+  // `user.merge(viewer, projection)`: per-key reads consult each edge's
+  // source in declaration order. Collection reads (entities/values) and the
+  // fold never see projections.
+  final List<_MergeEdge<K, E>> _merges = [];
+  final List<StreamSubscription<void>> _mergeSubs = [];
+
+  /// Wire a merge edge: [source]'s state answers this store's per-key reads
+  /// through [projection], at the source's own [Identifiable] id. The edge is
+  /// skipped while the source state is null. Declaration order = resolution
+  /// order (later edges see earlier answers).
+  void merge<S extends Identifiable<K>>(
+      ValueMemory<S?, Msg> source, Projection<S, K, E> projection) {
+    final edge = _MergeEdge<K, E>(
+      () {
+        final s = source.value;
+        return s == null ? null : (s.id, s);
+      },
+      (row, s) => projection.resolve(row, s as S),
+    );
+    _merges.add(edge);
+    // Surgical reactivity: a source change moves exactly the claimed keys —
+    // the previous claim (released) and the current one (answered anew).
+    var last = edge.claim()?.$1;
+    _mergeSubs.add(source.changes.listen((_) {
+      final prev = last;
+      final now = edge.claim()?.$1;
+      last = now;
+      if (prev != null && prev != now) _changes.add(prev);
+      if (now != null) _changes.add(now);
+    }));
+  }
+
+  E? _resolved(K key, E? row) {
+    var value = row;
+    for (final m in _merges) {
+      final c = m.claim();
+      if (c == null || c.$1 != key) continue;
+      value = m.resolve(value, c.$2);
+    }
+    return value;
+  }
+
   /// The EFFECTIVE identity-map (base folded through the pending optimistic
-  /// overlays) — the whole keyed collection.
+  /// overlays) — the whole keyed collection. UNROUTED: merge edges never
+  /// appear in iteration.
   IdentifiableMap<K, E> get entities => _eff;
 
   /// The EFFECTIVE value at [key]: confirmed base folded through the pending
-  /// optimistic overlays — this is what canon reads by nav id.
-  E? operator [](K key) => _eff[key];
+  /// optimistic overlays, then through the merge edges — this is what canon
+  /// reads by nav id.
+  E? operator [](K key) => _resolved(key, _eff[key]);
 
   /// A keyed HANDLE — `store(id)`: a first-class, passable reference to one
   /// entity slot. `[]` answers "the value, now"; `call` constructs the
@@ -580,6 +655,9 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
     _sub.cancel();
     _awaitsSub?.cancel();
     _connSub.cancel();
+    for (final s in _mergeSubs) {
+      s.cancel();
+    }
     _changes.close();
     _events.close();
   }
