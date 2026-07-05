@@ -121,6 +121,7 @@ class Ledger {
   /// A live UNIT store for [spec] (cardinality one, keyless facts).
   UnitMemory<S, M> unit<S, M extends Msg>(Unit<S, M> spec) {
     final mem = UnitMemory<S, M>(spec, _posted);
+    _rollbacks.add(mem.rollback);
     _disposers.add(mem.dispose);
     return mem;
   }

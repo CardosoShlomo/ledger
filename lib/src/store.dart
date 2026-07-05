@@ -269,17 +269,10 @@ abstract class Unit<S, M extends Msg> implements AnyStore {
 
 /// The live memory for a [Unit]: the value driven off a [Bus].
 class UnitMemory<S, M extends Msg> {
-  UnitMemory(this._spec, Bus bus) : _value = _spec.initial {
-    _sub = bus.on<M>().listen((msg) {
-      // any reduce-family fact resolves an outstanding request.
-      final cleared = _loading;
-      _loading = false;
-      final before = _value;
-      final next = _spec.reduce(before, msg);
-      _value = next;
-      if (!identical(next, before) || cleared) _changes.add(null);
-      _events.add(UnitEvent(msg: msg, before: before, after: next));
-    });
+  UnitMemory(this._spec, Bus bus)
+      : _base = _spec.initial,
+        _eff = _spec.initial {
+    _sub = bus.envelopesOf<M>().listen((r) => _apply(r.$1, r.$2));
     _awaitsSub = _spec.awaits?.events(bus).listen((_) {
       if (_loading) return;
       _loading = true;
@@ -288,8 +281,48 @@ class UnitMemory<S, M extends Msg> {
   }
 
   final Unit<S, M> _spec;
-  S _value;
+  S _base; // confirmed truth only
+  S _eff; // base folded through pending overlays (cache)
+  final List<_Pending<M>> _pending = []; // ordered optimistic overlays
   bool _loading = false;
+
+  void _refresh() {
+    var v = _base;
+    for (final p in _pending) {
+      v = _spec.reduce(v, p.msg);
+    }
+    _eff = v;
+  }
+
+  void _apply(M msg, Envelope env) {
+    // any reduce-family fact resolves an outstanding request.
+    final cleared = _loading;
+    _loading = false;
+    final before = _eff;
+    // optimistic + correlationId → a pending overlay; base is NOT touched.
+    if (env.optimistic && env.correlationId != null) {
+      _pending.add(_Pending(env.correlationId!, msg));
+    } else {
+      // a confirmed message carrying a pending correlation id CONFIRMS it:
+      // drop the overlay; the real effect below replaces it in base.
+      final cid = env.correlationId;
+      if (cid != null) _pending.removeWhere((p) => p.correlationId == cid);
+      _base = _spec.reduce(_base, msg);
+    }
+    _refresh();
+    if (!identical(_eff, before) || cleared) _changes.add(null);
+    _events.add(UnitEvent(msg: msg, before: before, after: _eff));
+  }
+
+  /// Discard the optimistic overlay(s) for [correlationId] — the prediction
+  /// failed. Base is untouched, so superseding writes survive. Emits no
+  /// event (no message caused it), only a change.
+  void rollback(String correlationId) {
+    final before = _eff;
+    _pending.removeWhere((p) => p.correlationId == correlationId);
+    _refresh();
+    if (!identical(_eff, before)) _changes.add(null);
+  }
   final StreamController<void> _changes =
       StreamController<void>.broadcast(sync: true);
   final StreamController<UnitEvent<S, M>> _events =
@@ -298,7 +331,7 @@ class UnitMemory<S, M extends Msg> {
   late final StreamSubscription<void>? _awaitsSub;
 
   /// The value, now.
-  S get value => _value;
+  S get value => _eff;
 
   /// True while a request fact awaits its answer (any non-request family
   /// fact clears it).
