@@ -1,3 +1,5 @@
+import 'package:meta/meta.dart';
+
 import 'msg.dart';
 
 /// Where a value/message came from — the app's OPEN, GLOBAL provenance. Extend
@@ -22,6 +24,7 @@ enum Stability { missing, loading, pending, confirmed, stale, failed }
 /// the canon-owned overlay-routing signal — separate from `source`, because the
 /// base can't read the app's open provenance type to detect an optimistic emit.
 /// `correlationId` ties an optimistic dispatch to its later remote confirmation.
+@immutable
 class Envelope {
   Envelope(this.msg,
       {required this.source, this.optimistic = false, this.correlationId});
@@ -43,6 +46,7 @@ class Envelope {
 /// The per-key sidecar a store keeps BESIDE the value: where it came from and how
 /// settled it is. Kept separate so a value-only read never rebuilds on a flag
 /// flip (a freshness/confirm change that leaves the value untouched).
+@immutable
 class Flags {
   const Flags({required this.source, required this.stability});
   final Source source;

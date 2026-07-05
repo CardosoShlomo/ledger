@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:identifiable/identifiable.dart';
+import 'package:meta/meta.dart';
 
 import 'envelope.dart';
 import 'msg.dart';
@@ -39,6 +40,7 @@ typedef Guard<M extends Msg> = Envelope? Function(M msg, Envelope env);
 /// the fold. Filters recover every narrower feed: `structural` (the list
 /// shell), `changed.contains(id)` (per key), a before/after delta (state
 /// TRANSITIONS), a msg-type check (post-fold message observation).
+@immutable
 final class StoreEvent<K, E extends Identifiable<K>, M extends Msg> {
   const StoreEvent({
     required this.msg,
@@ -72,6 +74,7 @@ final class StoreEvent<K, E extends Identifiable<K>, M extends Msg> {
 /// Scope: per-key surfaces only (`store[id]`, `store(id)`, consume, the UI
 /// layer's `.of`/EntityScope). `entities`/`values` stay honest rows — a
 /// projection never appears in collection iteration, and reduces never see it.
+@immutable
 abstract base class Projection<S extends Identifiable<K>, K, E> {
   const Projection();
 
@@ -80,6 +83,7 @@ abstract base class Projection<S extends Identifiable<K>, K, E> {
 }
 
 /// The unit form of [StoreEvent].
+@immutable
 final class UnitEvent<S, M extends Msg> {
   const UnitEvent({required this.msg, required this.before, required this.after});
 
@@ -184,6 +188,7 @@ class Bus {
 /// The PURE, const registry descriptor: how a message folds into an entry's
 /// state. No mutable state, no `ref`, const — so it can sit in a spec. The live
 /// store ([StoreMemory]) is created separately and wired to a [Bus].
+@immutable
 abstract class Store<K, E extends Identifiable<K>, M extends Msg>
     implements AnyStore {
   const Store([this.initial = const {}]);
@@ -212,6 +217,7 @@ abstract class Store<K, E extends Identifiable<K>, M extends Msg>
 /// extracts the key a request puts in flight, and judges the SCOPE-ENTRY ask
 /// ([surface]). Holds no state — the status lives in the data store's
 /// sidecar; this spec only feeds it.
+@immutable
 abstract class Awaits<K, E, R extends Msg> {
   const Awaits();
 
@@ -236,6 +242,7 @@ abstract class Awaits<K, E, R extends Msg> {
 /// The unit form: ANY [R] fact puts the unit in flight (a unit has one key —
 /// itself), and any fact of the unit's reduce family clears it. [R] must not
 /// be part of the reduce family, or it would clear itself.
+@immutable
 final class AwaitsUnit<R extends Msg> {
   const AwaitsUnit();
 
@@ -245,6 +252,7 @@ final class AwaitsUnit<R extends Msg> {
 /// The UNIT sibling of [Store]: one value, cardinality one — for entities
 /// whose identity is the session (the wire sends their facts KEYLESS: a
 /// viewer profile, a requests+unseen state). Same purity contract.
+@immutable
 abstract class Unit<S, M extends Msg> implements AnyStore {
   const Unit(this.initial);
 
