@@ -17,7 +17,10 @@ enum CommonSource implements Source { remote, optimistic, local, replay, cached 
 
 /// The lifecycle position of a stored datum — CLOSED and derived, never set by
 /// a consumer. The screen-entry trigger switches over it exhaustively.
-enum Stability { missing, loading, pending, confirmed, stale, failed }
+/// `reverted` = the last word here was a FAILED optimism: the value is the
+/// confirmed base again after a rollback snapped an overlay away, and no newer
+/// fact has spoken. The next fold that touches the datum overwrites it.
+enum Stability { missing, loading, pending, confirmed, stale, failed, reverted }
 
 /// A message wrapped with its transit metadata. `dispatch` produces one; guards
 /// transform it; a store reads `source` into its flags sidecar. [optimistic] is

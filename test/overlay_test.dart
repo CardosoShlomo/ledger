@@ -64,6 +64,11 @@ void main() {
     store.rollback('C1');
 
     expect(store['a']?.value, 10);
+    // The value is base again, but the last word was a failed optimism —
+    // renderable until the next fold touches the key.
+    expect(store.flagsOf('a')?.stability, Stability.reverted);
+
+    bus.dispatch(_Add('a', 1)); // reality speaks again
     expect(store.flagsOf('a')?.stability, Stability.confirmed);
   });
 

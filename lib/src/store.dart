@@ -285,6 +285,7 @@ class UnitMemory<S, M extends Msg> {
   S _eff; // base folded through pending overlays (cache)
   final List<_Pending<M>> _pending = []; // ordered optimistic overlays
   bool _loading = false;
+  bool _reverted = false;
 
   void _refresh() {
     var v = _base;
@@ -295,9 +296,11 @@ class UnitMemory<S, M extends Msg> {
   }
 
   void _apply(M msg, Envelope env) {
-    // any reduce-family fact resolves an outstanding request.
-    final cleared = _loading;
+    // any reduce-family fact resolves an outstanding request — and speaks
+    // over a reverted flag.
+    final cleared = _loading || _reverted;
     _loading = false;
+    _reverted = false;
     final before = _eff;
     // optimistic + correlationId → a pending overlay; base is NOT touched.
     if (env.optimistic && env.correlationId != null) {
@@ -316,12 +319,16 @@ class UnitMemory<S, M extends Msg> {
 
   /// Discard the optimistic overlay(s) for [correlationId] — the prediction
   /// failed. Base is untouched, so superseding writes survive. Emits no
-  /// event (no message caused it), only a change.
+  /// event (no message caused it), only a change. When the value snapped
+  /// back, [reverted] holds until the next family fact speaks.
   void rollback(String correlationId) {
     final before = _eff;
     _pending.removeWhere((p) => p.correlationId == correlationId);
     _refresh();
-    if (!identical(_eff, before)) _changes.add(null);
+    if (!identical(_eff, before)) {
+      _reverted = true;
+      _changes.add(null);
+    }
   }
   final StreamController<void> _changes =
       StreamController<void>.broadcast(sync: true);
@@ -336,6 +343,11 @@ class UnitMemory<S, M extends Msg> {
   /// True while a request fact awaits its answer (any non-request family
   /// fact clears it).
   bool get loading => _loading;
+
+  /// True after a rollback snapped the value back to base, until the next
+  /// family fact speaks — the unit-tier [Stability.reverted]: render the
+  /// failed optimism however you want.
+  bool get reverted => _reverted;
 
   /// Fires on every value change.
   Stream<void> get changes => _changes.stream;
@@ -485,9 +497,20 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
 
   /// Discard the optimistic overlay(s) for [correlationId] — the prediction
   /// failed (timeout/reject). Base is untouched, so any superseding writes that
-  /// landed meanwhile survive.
+  /// landed meanwhile survive. Keys whose effective value snapped back are
+  /// flagged [Stability.reverted] until the next fold touches them, so a
+  /// consumer can render the failure however it wants.
   void rollback(String correlationId) {
+    final before = _eff;
     _pending.removeWhere((p) => p.correlationId == correlationId);
+    var m = _base;
+    for (final p in _pending) {
+      m = _reg.reduce(m, p.msg);
+    }
+    for (final k in _diff(before, m)) {
+      _flags[k] =
+          Flags(source: CommonSource.optimistic, stability: Stability.reverted);
+    }
     _refresh(const {});
   }
 
