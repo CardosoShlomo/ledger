@@ -222,7 +222,7 @@ class Bus {
 @immutable
 abstract class Store<K, E extends Identifiable<K>, M extends Msg>
     implements AnyStore {
-  const Store({this.initial = const {}, this.awaits});
+  const Store({this.initial = const {}, this.awaits, this.verdict});
 
   /// The collection before any fact has arrived — empty unless seeded.
   final IdentifiableMap<K, E> initial;
@@ -233,6 +233,14 @@ abstract class Store<K, E extends Identifiable<K>, M extends Msg>
   /// Null when the store has no requests — and therefore no ask: an
   /// uncorrelated ask would re-fire on every navigation.
   final Awaits<K, E, Msg>? awaits;
+
+  /// The store's WRITE twin — a family fact of the verdict's prediction type
+  /// becomes a pending per-key prediction (an instant overlay; base is never
+  /// touched); resolver-family facts settle it by state comparison AT THE
+  /// PREDICTION'S KEYS. Requires value equality on E. Predictions PIPELINE
+  /// (unlike the unit's single pending): each settles independently, oldest
+  /// first per overlapping key. See [Verdict].
+  final Verdict<M, M>? verdict;
 
   /// Fold a message into the registry's keyed collection and return the NEXT
   /// collection. PURE — replayed on optimistic confirm/rollback, so no side
@@ -522,6 +530,11 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   late IdentifiableMap<K, E> _eff = _reg.initial; // base folded through pending overlays (cache)
   final Map<K, Flags> _flags = {};
   final List<_Pending<M>> _pending = []; // ordered optimistic overlays
+  // Verdict predictions: overlay cid → (touched keys, the world at
+  // prediction time restricted to those keys) — settled by comparison.
+  final Map<String, ({Set<K> keys, Map<K, E?> before})> _predictions = {};
+  final Map<String, Timer> _deadlines = {};
+  int _predictionSeq = 0;
   final StreamController<K> _changes = StreamController<K>.broadcast();
   final StreamController<void> _structure =
       StreamController<void>.broadcast();
@@ -564,6 +577,25 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
 
   void _apply(M msg, Envelope env) {
     final prevEff = _eff;
+    final verdict = _reg.verdict;
+    // a verdict prediction: an auto-correlated overlay; base is NOT touched.
+    if (verdict != null && verdict.predicts(msg) && !env.optimistic) {
+      final cid = 'p${_predictionSeq++}';
+      final touched = _diff(_eff, _reg.reduce(_eff, msg));
+      _pending.add(_Pending(cid, msg));
+      _predictions[cid] = (
+        keys: touched,
+        before: {for (final k in touched) k: _eff[k]},
+      );
+      _deadlines[cid] = Timer(verdict.deadline, () => _settlePrediction(cid));
+      for (final k in touched) {
+        _flags[k] = (_flags[k] ?? const Flags(stability: Stability.missing))
+            .copyWith(stability: Stability.pending);
+      }
+      _refresh(const {});
+      _emit(msg, env, prevEff);
+      return;
+    }
     // optimistic + correlationId → a pending overlay; base is NOT touched.
     if (env.optimistic && env.correlationId != null) {
       _pending.add(_Pending(env.correlationId!, msg));
@@ -586,7 +618,55 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
       }
     }
     _refresh(touched);
+    // only the RESOLVER family runs the checks, oldest overlapping first.
+    if (verdict != null && verdict.resolves(msg)) {
+      for (final cid in _predictions.keys.toList()) {
+        if (_predictions[cid]!.keys.intersection(touched).isNotEmpty) {
+          _settlePrediction(cid, atDeadline: false);
+        }
+      }
+    }
     _emit(msg, env, prevEff);
+  }
+
+  /// Settle one prediction (see [Verdict], keyed form): re-applying it to
+  /// the current base is a no-op at its keys → CONFIRMED. The world at its
+  /// keys is still what it was → REVERTED (deadline) / keep waiting with
+  /// `tampered` (a resolver spoke, matched neither). Deadline, elsewhere →
+  /// AMENDED.
+  void _settlePrediction(String cid, {bool atDeadline = true}) {
+    final meta = _predictions[cid];
+    if (meta == null) return;
+    final p = _pending.firstWhere((x) => x.correlationId == cid);
+    final reapplied = _reg.reduce(_base, p.msg);
+    final noOp = meta.keys.every((k) => reapplied[k] == _base[k]);
+    final unchanged = meta.keys.every((k) => _base[k] == meta.before[k]);
+    if (noOp) {
+      _clearPrediction(cid, meta.keys, Stability.confirmed);
+    } else if (atDeadline) {
+      _clearPrediction(
+          cid, meta.keys, unchanged ? Stability.reverted : Stability.amended);
+    } else if (!unchanged) {
+      for (final k in meta.keys) {
+        _flags[k] = (_flags[k] ?? const Flags(stability: Stability.pending))
+            .copyWith(tampered: true);
+      }
+      _refresh(meta.keys);
+    }
+  }
+
+  void _clearPrediction(String cid, Set<K> keys, Stability outcome) {
+    _deadlines.remove(cid)?.cancel();
+    _predictions.remove(cid);
+    _pending.removeWhere((x) => x.correlationId == cid);
+    for (final k in keys) {
+      if (_base.containsKey(k) || outcome != Stability.confirmed) {
+        _flags[k] = Flags(stability: outcome);
+      } else {
+        _flags.remove(k);
+      }
+    }
+    _refresh(keys);
   }
 
   // ONE event per delivered family message — even a no-op fold emits, so a
@@ -879,6 +959,9 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   }
 
   void dispose() {
+    for (final t in _deadlines.values) {
+      t.cancel();
+    }
     _sub.cancel();
     _awaitsSub?.cancel();
     _connSub.cancel();
