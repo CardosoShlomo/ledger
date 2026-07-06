@@ -38,9 +38,11 @@ final class _Counter extends Store<String, _CountState, _CountMsg> {
 }
 
 void main() {
-  test('journal records everything; a posting guard gates what becomes state',
+  test('journal records everything; a guard gates the rows below its own',
       () async {
     final ledger = Ledger();
+    // Row order IS the spec: the guard stands above the store it protects.
+    ledger.veto<_Reset>((_) => true); // drop resets from this row down
     final counter = ledger.store(const _Counter());
 
     final journalSeen = <Object>[];
@@ -48,15 +50,27 @@ void main() {
     final admittedSeen = <Object>[];
     ledger.on<Msg>().listen(admittedSeen.add);
 
-    ledger.guard<_Reset>((msg, env) => null); // drop resets at posting
-
     ledger.dispatch(_Inc('a', 5));
-    ledger.dispatch(_Reset('a')); // vetoed at posting
+    ledger.dispatch(_Reset('a')); // dropped above the store's row
 
     await Future<void>.delayed(Duration.zero); // observers deliver post-cut
-    expect(counter['a']?.value, 5); // reset never posted to state
-    expect(admittedSeen.length, 1); // ledger.on = the ADMITTED feed — no ghost effects
+    expect(counter['a']?.value, 5); // reset never reached the store
+    expect(admittedSeen.length, 1); // ledger.on = the END of the queue — no ghost effects
     expect(journalSeen.length, 2); // …but the journal kept BOTH (complete record)
+  });
+
+  test('a guard protects only the rows below it — placement is semantics',
+      () async {
+    final ledger = Ledger();
+    final above = ledger.store(const _Counter()); // folds BEFORE the guard
+    ledger.veto<_Reset>((_) => true);
+    final below = ledger.store(const _Counter()); // sees only what survives
+
+    ledger.dispatch(_Inc('a', 5));
+    ledger.dispatch(_Reset('a'));
+
+    expect(above['a'], isNull); // the reset folded here — row above the guard
+    expect(below['a']?.value, 5); // …and was dropped before this row
   });
 
   test('a registered registry receives posted messages and stamps stability', () {

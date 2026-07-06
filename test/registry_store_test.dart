@@ -65,15 +65,6 @@ void main() {
     expect(store.flagsOf('a'), isNull);
   });
 
-  test('a pure guard vetoes a message without coupling the bus', () {
-    final bus = Bus();
-    final store = StoreMemory(const _Counter(), bus);
-    bus.guard<_Reset>((msg, env) => null); // drop resets
-    bus.dispatch(_Inc('a', 5));
-    bus.dispatch(_Reset('a')); // vetoed → 'a' survives
-    expect(store['a']?.value, 5);
-  });
-
   test('changes stream emits the key per mutation', () async {
     final bus = Bus();
     final store = StoreMemory(const _Counter(), bus);

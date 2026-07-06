@@ -4,6 +4,7 @@ export 'package:identifiable/identifiable.dart';
 
 export 'src/envelope.dart';
 export 'src/event_streams.dart';
+export 'src/guard.dart';
 export 'src/ledger.dart';
 export 'src/msg.dart';
 export 'src/store.dart';

@@ -26,15 +26,17 @@ mixin StoreNode<Self extends StoreNode<Self>> on Enum {
 /// What a `@stores` row may hold: a keyed [Store] or a [Unit].
 abstract interface class AnyStore {}
 
-/// A PURE interceptor in the dispatch pipeline: inspect/transform an envelope,
-/// or return null to veto it. It runs in the replay/optimistic path, so it MUST
-/// be pure — a riverpod app guards the flow with one of these without coupling
-/// the bus to it; side effects belong in a subscriber ([Bus.on]), not a guard.
-///
-/// Typed like [Bus.on]: a `Guard<AdMsg>` sees only that family — every other
-/// envelope passes through it untouched; the default `M = Msg` sees the feed.
-typedef Guard<M extends Msg> = Envelope? Function(M msg, Envelope env);
+/// A CITIZEN of the ledger — anything that occupies a row of the regents
+/// enum: stores, units, guards, vetoes. Row order is traversal order: a
+/// message walks the rows top to bottom, folding into stores and submitting
+/// to guards as it passes; a guard that drops it stops the walk for every
+/// row below.
+@immutable
+abstract base class Regent {
+  const Regent();
+}
 
+/// A PURE interceptor in the dispatch pipeline: inspect/transform an envelope,
 /// One fold's full story, emitted by a store AFTER the reduce ran: the cause
 /// and its consequence, atomically — an effect filtering these can never race
 /// the fold. Filters recover every narrower feed: `structural` (the list
@@ -135,18 +137,7 @@ class Bus {
   // loop is the deferral queue — listeners run after the traversal, each
   // seeing a consistent cut; their dispatches enter like any other.
   final StreamController<Envelope> _taps = StreamController<Envelope>.broadcast();
-  final List<Guard<Msg>> _guards = [];
   bool _firing = false;
-
-  /// Register a pure guard for the [M] family. Runs on every dispatch, in
-  /// registration order; a non-[M] envelope passes through unchanged.
-  void guard<M extends Msg>(Guard<M> g) => _guards
-      .add((msg, env) => msg is M ? g(msg, env) : env);
-
-  /// The predicate form of [guard]: TRUE vetoes (the message is dropped),
-  /// false passes it untouched.
-  void veto<M extends Msg>(bool Function(M msg) test) =>
-      guard<M>((msg, env) => test(msg) ? null : env);
 
   /// Push a message through the bus. `source` tags provenance (defaults to the
   /// common remote/optimistic); `optimistic` is the overlay-routing signal — an
@@ -154,16 +145,12 @@ class Bus {
   /// lands as a pending overlay.
   void dispatch(Msg msg, {bool optimistic = false, String? correlationId}) {
     // Purity is enforced, not accommodated: nothing inside a traversal may
-    // dispatch (guards and reduces are pure; observers deliver async, after).
+    // dispatch (reduces are pure; observers deliver async, after). Guards
+    // live in the LEDGER's queue, between segments — a bus is one segment.
     assert(!_firing,
         'dispatch during a traversal — guards and reduces must be pure');
-    var env =
+    final env =
         Envelope(msg, optimistic: optimistic, correlationId: correlationId);
-    for (final g in _guards) {
-      final next = g(env.msg, env);
-      if (next == null) return; // vetoed
-      env = next;
-    }
     _firing = true;
     try {
       _spine.add(env);
@@ -220,8 +207,8 @@ class Bus {
 /// state. No mutable state, no `ref`, const — so it can sit in a spec. The live
 /// store ([StoreMemory]) is created separately and wired to a [Bus].
 @immutable
-abstract class Store<K, E extends Identifiable<K>, M extends Msg>
-    implements AnyStore {
+abstract base class Store<K, E extends Identifiable<K>, M extends Msg>
+    extends Regent implements AnyStore {
   const Store({this.initial = const {}, this.awaits, this.verdict});
 
   /// The collection before any fact has arrived — empty unless seeded.
@@ -292,7 +279,8 @@ final class AwaitsUnit<R extends Msg> {
 /// whose identity is the session (the wire sends their facts KEYLESS: a
 /// viewer profile, a requests+unseen state). Same purity contract.
 @immutable
-abstract class Unit<S, M extends Msg> implements AnyStore {
+abstract base class Unit<S, M extends Msg> extends Regent
+    implements AnyStore {
   const Unit(this.initial, {this.awaits, this.verdict});
 
   /// The value before any fact has arrived.

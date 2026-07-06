@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:identifiable/identifiable.dart';
 
 import 'envelope.dart';
+import 'guard.dart';
 import 'msg.dart';
 import 'store.dart';
 
@@ -16,45 +17,93 @@ import 'store.dart';
 /// (`on`), tap the raw record (`journal.on`), and register stores via `store`.
 class Ledger {
   Ledger() {
-    // forward EVERY journal message through the posting guards to the registries.
-    _sub = journal.spine<Msg>().listen((r) {
-      final (msg, env) = r;
-      var e = env;
-      for (final g in _guards) {
-        final next = g(e.msg, e);
-        if (next == null) return; // vetoed at posting — journal keeps it, state doesn't
-        e = next;
+    // Every journal message enters the FIRST segment of the queue; guards
+    // forward (or drop, or rewrite) between segments; the last segment
+    // forwards into [_posted], which [on] taps.
+    _tail = _segment(journal);
+    _plumbTailToPosted();
+    _connSub = journal.connection.listen((v) {
+      for (final b in _segments) {
+        b.setConnected(v);
       }
-      _posted.dispatch(e.msg,
-          optimistic: e.optimistic, correlationId: e.correlationId);
+      _posted.setConnected(v);
     });
-    // connection state flows to the registries too.
-    _connSub = journal.connection.listen(_posted.setConnected);
   }
 
   /// The complete, ungated record. Dispatch here; tap here for replay/debug.
   final Bus journal = Bus();
 
-  /// The post-guard stream — what the ledger ADMITTED. Stores reduce it and
-  /// [on] taps it, so state and effects always see the same feed.
+  /// The end of the queue — what survived EVERY guard. Effects tap it via
+  /// [on], so nothing fires on a dropped message.
   final Bus _posted = Bus();
 
-  final List<Guard<Msg>> _guards = [];
+  // ── The queue: segments of stores separated by guards ──
+  final List<Bus> _segments = [];
+  late Bus _tail;
+  StreamSubscription<Object?>? _tailForward;
+
+  /// A new segment fed by [source] (verbatim forward).
+  Bus _segment(Bus source) {
+    final seg = Bus();
+    _forwards.add(source.spine<Msg>().listen((r) {
+      final (msg, env) = r;
+      seg.dispatch(msg,
+          optimistic: env.optimistic, correlationId: env.correlationId);
+    }));
+    _segments.add(seg);
+    return seg;
+  }
+
+  void _plumbTailToPosted() {
+    _tailForward?.cancel();
+    _tailForward = _tail.spine<Msg>().listen((r) {
+      final (msg, env) = r;
+      _posted.dispatch(msg,
+          optimistic: env.optimistic, correlationId: env.correlationId);
+    });
+  }
+
+  final List<StreamSubscription<Object?>> _forwards = [];
   final List<void Function(String)> _rollbacks = []; // per-store overlay rollback
   final List<void Function()> _disposers = []; // dispose the stores `close` owns
   int _seq = 0; // monotonic correlation id source (no time/random dependency)
   late final StreamSubscription<Object?> _sub;
   late final StreamSubscription<bool> _connSub;
 
-  /// A PURE posting guard for the [M] family — gate what becomes state without
-  /// touching the journal. A non-[M] envelope passes through unchanged.
-  void guard<M extends Msg>(Guard<M> g) => _guards
-      .add((msg, env) => msg is M ? g(msg, env) : env);
+  /// Place [spec] at the CURRENT row of the queue: rows registered before it
+  /// see every message; rows after it see only what it admits (possibly
+  /// rewritten). [stores] is the read-only facade the judge sees the world
+  /// through.
+  void guard<M extends Msg, S>(Guard<M, S> spec, S stores) {
+    final source = _tail;
+    final seg = Bus();
+    _forwards.add(source.spine<Msg>().listen((r) {
+      final (msg, env) = r;
+      final next = msg is M ? spec.judge(env, msg, stores) : msg;
+      if (next == null) return; // dropped — journal keeps it, rows below don't
+      seg.dispatch(next,
+          optimistic: env.optimistic, correlationId: env.correlationId);
+    }));
+    _segments.add(seg);
+    _tail = seg;
+    _plumbTailToPosted();
+  }
 
-  /// The predicate form of [guard]: TRUE vetoes (the message is dropped),
-  /// false passes it untouched.
-  void veto<M extends Msg>(bool Function(M msg) test) =>
-      guard<M>((msg, env) => test(msg) ? null : env);
+  /// The inline predicate form of a [Veto] — TRUE drops the message from
+  /// this row down. For hand wiring; enum rows use [Veto] classes.
+  void veto<M extends Msg>(bool Function(M msg) test) {
+    final source = _tail;
+    final seg = Bus();
+    _forwards.add(source.spine<Msg>().listen((r) {
+      final (msg, env) = r;
+      if (msg is M && test(msg)) return;
+      seg.dispatch(msg,
+          optimistic: env.optimistic, correlationId: env.correlationId);
+    }));
+    _segments.add(seg);
+    _tail = seg;
+    _plumbTailToPosted();
+  }
 
   /// Push a message onto the journal (it then posts through the guards).
   void dispatch(Msg msg, {bool optimistic = false, String? correlationId}) =>
@@ -108,10 +157,11 @@ class Ledger {
   /// Report transport connection state (drives stability on every store).
   void setConnected(bool value) => journal.setConnected(value);
 
-  /// A live store for [spec], driven off the post-guard stream.
+  /// A live store for [spec], standing at the CURRENT row: it folds
+  /// whatever survives the guards declared above it.
   StoreMemory<K, E, M> store<K, E extends Identifiable<K>, M extends Msg>(
       Store<K, E, M> spec) {
-    final mem = StoreMemory<K, E, M>(spec, _posted);
+    final mem = StoreMemory<K, E, M>(spec, _tail);
     _rollbacks.add(mem.rollback);
     _disposers.add(mem.dispose);
     return mem;
@@ -119,7 +169,7 @@ class Ledger {
 
   /// A live UNIT store for [spec] (cardinality one, keyless facts).
   UnitMemory<S, M> unit<S, M extends Msg>(Unit<S, M> spec) {
-    final mem = UnitMemory<S, M>(spec, _posted);
+    final mem = UnitMemory<S, M>(spec, _tail);
     _rollbacks.add(mem.rollback);
     _disposers.add(mem.dispose);
     return mem;
@@ -129,9 +179,15 @@ class Ledger {
     for (final d in _disposers) {
       d();
     }
-    _sub.cancel();
+    for (final f in _forwards) {
+      f.cancel();
+    }
+    _tailForward?.cancel();
     _connSub.cancel();
     journal.close();
+    for (final b in _segments) {
+      b.close();
+    }
     _posted.close();
   }
 }
