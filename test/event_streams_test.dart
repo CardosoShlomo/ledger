@@ -39,7 +39,7 @@ final class _FlowUnit extends Unit<_Flow, _FlowMsg> {
 }
 
 void main() {
-  test('transitions() passes only real moves', () {
+  test('transitions() passes only real moves', () async {
     final bus = Bus();
     final unit = UnitMemory(const _FlowUnit(), bus);
     final seen = <_Phase>[];
@@ -47,20 +47,22 @@ void main() {
     bus.dispatch(const _Advance(_Phase.compressing));
     bus.dispatch(const _Advance(_Phase.compressing)); // no-op fold
     bus.dispatch(const _Advance(_Phase.uploading));
+    await Future<void>.delayed(Duration.zero);
     expect(seen, [_Phase.compressing, _Phase.uploading]);
   });
 
-  test('transitions(projection) watches one aspect', () {
+  test('transitions(projection) watches one aspect', () async {
     final bus = Bus();
     final unit = UnitMemory(const _FlowUnit(), bus);
     var fired = 0;
     unit.events.transitions((s) => s.phase).listen((_) => fired++);
     bus.dispatch(const _Noted('a')); // note moved, phase did not
     bus.dispatch(const _Advance(_Phase.done));
+    await Future<void>.delayed(Duration.zero);
     expect(fired, 1);
   });
 
-  test('entering fires once per arrival at the state', () {
+  test('entering fires once per arrival at the state', () async {
     final bus = Bus();
     final unit = UnitMemory(const _FlowUnit(), bus);
     var arrived = 0;
@@ -69,16 +71,18 @@ void main() {
         .listen((_) => arrived++);
     bus.dispatch(const _Advance(_Phase.done, 'x'));
     bus.dispatch(const _Advance(_Phase.done, 'x')); // already there
+    await Future<void>.delayed(Duration.zero);
     expect(arrived, 1);
   });
 
-  test('on<M>() re-types the msg', () {
+  test('on<M>() re-types the msg', () async {
     final bus = Bus();
     final unit = UnitMemory(const _FlowUnit(), bus);
     final notes = <String>[];
     unit.events.on<_Noted>().listen((e) => notes.add(e.msg.note));
     bus.dispatch(const _Advance(_Phase.compressing, 'skip'));
     bus.dispatch(const _Noted('kept'));
+    await Future<void>.delayed(Duration.zero);
     expect(notes, ['kept']);
   });
 }

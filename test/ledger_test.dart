@@ -39,7 +39,7 @@ final class _Counter extends Store<String, _CountState, _CountMsg> {
 
 void main() {
   test('journal records everything; a posting guard gates what becomes state',
-      () {
+      () async {
     final ledger = Ledger();
     final counter = ledger.store(const _Counter());
 
@@ -53,6 +53,7 @@ void main() {
     ledger.dispatch(_Inc('a', 5));
     ledger.dispatch(_Reset('a')); // vetoed at posting
 
+    await Future<void>.delayed(Duration.zero); // observers deliver post-cut
     expect(counter['a']?.value, 5); // reset never posted to state
     expect(admittedSeen.length, 1); // ledger.on = the ADMITTED feed — no ghost effects
     expect(journalSeen.length, 2); // …but the journal kept BOTH (complete record)
@@ -74,16 +75,18 @@ void main() {
     expect(counter.flagsOf('a')?.stability, Stability.stale);
   });
 
-  test('an effect may dispatch from within delivery (re-entrant queues)', () {
+  test('an effect dispatches AFTER the traversal (async delivery)', () async {
     final ledger = Ledger();
     final counter = ledger.store(const _Counter());
-    // message → effect → message: the normal bus pattern. The re-entrant
-    // dispatch queues and drains in order instead of blowing the sync stream.
+    // message → effect → message: the effect delivers async (post-cut), so
+    // its dispatch is an ordinary new traversal — never re-entrant.
     ledger.on<_Inc>().listen((msg) {
       if (msg.by == 5) ledger.dispatch(_Inc('a', 1));
     });
     ledger.dispatch(_Inc('a', 5));
-    expect(counter['a']?.value, 6);
+    expect(counter['a']?.value, 5); // state settled; effect not yet run
+    await Future<void>.delayed(Duration.zero);
+    expect(counter['a']?.value, 6); // the effect's fact landed after
   });
 
   test('close disposes the stores it created', () async {

@@ -17,7 +17,7 @@ import 'store.dart';
 class Ledger {
   Ledger() {
     // forward EVERY journal message through the posting guards to the registries.
-    _sub = journal.envelopesOf<Msg>().listen((r) {
+    _sub = journal.spine<Msg>().listen((r) {
       final (msg, env) = r;
       var e = env;
       for (final g in _guards) {

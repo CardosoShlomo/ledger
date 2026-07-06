@@ -44,6 +44,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     await sub.cancel();
 
+    await Future<void>.delayed(Duration.zero);
     expect(seen, ['hi', 'hi2']); // no emit for the loading flip
   });
 
@@ -51,17 +52,21 @@ void main() {
     final bus = Bus();
     final store = StoreMemory(const _Docs(), bus);
     bus.dispatch(_Set('a', 'hi'));
+    await Future<void>.delayed(Duration.zero);
 
     final seen = <Stability?>[];
     final sub = store.watchStatus('a').listen((f) => seen.add(f?.stability));
     await Future<void>.delayed(Duration.zero); // initial confirmed
 
     store.markLoading('a');
-    bus.dispatch(_Set('a', 'hi2')); // value change re-confirms (same flags as start) → no extra emit
+    await Future<void>.delayed(Duration.zero); // loading is its own cut
+    bus.dispatch(_Set('a', 'hi2'));
+    await Future<void>.delayed(Duration.zero); // value change re-confirms (same flags as start) → no extra emit
     store.markFailed('a');
     await Future<void>.delayed(Duration.zero);
     await sub.cancel();
 
+    await Future<void>.delayed(Duration.zero);
     expect(seen, [Stability.confirmed, Stability.loading, Stability.confirmed, Stability.failed]);
   });
 
@@ -78,6 +83,7 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     await sub.cancel();
 
+    await Future<void>.delayed(Duration.zero);
     expect(seen, [null, 'mine']); // 'b' never woke 'a'
   });
 }

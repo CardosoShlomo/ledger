@@ -100,16 +100,18 @@ void main() {
     expect(feed.value, ['x']);
   });
 
-  test('unit: flag flips alone emit changes', () {
+  test('unit: flag flips alone emit changes', () async {
     final bus = Bus();
     final feed = UnitMemory(const _FeedUnit(), bus);
     var emits = 0;
     feed.changes.listen((_) => emits++);
 
     bus.dispatch(_Refresh());
+    await Future<void>.delayed(Duration.zero);
     expect(emits, 1);
     bus.dispatch(_Feed(const []));
     // value unchanged (identical initial? no — new list) but loading cleared.
+    await Future<void>.delayed(Duration.zero);
     expect(emits, 2);
   });
 }

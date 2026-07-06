@@ -76,7 +76,7 @@ void main() {
     expect(store.flagsOf('a')?.stability, Stability.loading);
   });
 
-  test('stability transitions emit change events', () {
+  test('stability transitions emit change events', () async {
     final bus = Bus();
     final store = StoreMemory(const _Docs(), bus);
     bus.dispatch(_Set('a', 'hi'));
@@ -85,6 +85,7 @@ void main() {
     store.markLoading('a');
     bus.setConnected(false); // invalidateAll → a is loading, not confirmed → no-op
     store.markFailed('a');
+    await Future<void>.delayed(Duration.zero);
     expect(keys, ['a', 'a']); // loading, failed (disconnect was a no-op on loading)
   });
 }

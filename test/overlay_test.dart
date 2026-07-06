@@ -91,7 +91,7 @@ void main() {
     expect(store.confirmed('a')?.value, 13);
   });
 
-  test('changes fire on overlay add, confirm, and rollback', () {
+  test('changes fire on overlay add, confirm, and rollback', () async {
     final bus = Bus();
     final store = StoreMemory(const _Counter(), bus);
     final keys = <String>[];
@@ -99,6 +99,7 @@ void main() {
     bus.dispatch(_Add('a', 10)); // base
     bus.dispatch(_Add('a', 5), optimistic: true, correlationId: 'C1'); // overlay
     store.rollback('C1'); // rollback
+    await Future<void>.delayed(Duration.zero);
     expect(keys, ['a', 'a', 'a']);
   });
 }

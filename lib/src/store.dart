@@ -127,13 +127,15 @@ final class UnitEvent<S, M extends Msg> {
 /// Decoupled from canon and from Flutter; a [StoreMemory] subscribes to it,
 /// and a riverpod notifier can subscribe via [on] too — neither owns the other.
 class Bus {
-  final StreamController<Envelope> _controller =
+  // The SPINE: synchronous delivery that runs the traversal (folds). Internal —
+  // memories subscribe here so state is settled when dispatch returns.
+  final StreamController<Envelope> _spine =
       StreamController<Envelope>.broadcast(sync: true);
+  // The TAPS: async delivery for all observation (effects, [on]). The event
+  // loop is the deferral queue — listeners run after the traversal, each
+  // seeing a consistent cut; their dispatches enter like any other.
+  final StreamController<Envelope> _taps = StreamController<Envelope>.broadcast();
   final List<Guard<Msg>> _guards = [];
-  // Re-entrant dispatches (an effect dispatching from within delivery — the
-  // normal message → effect → message pattern) queue here and drain in order;
-  // a sync broadcast controller throws on a mid-delivery add.
-  final List<Envelope> _queued = [];
   bool _firing = false;
 
   /// Register a pure guard for the [M] family. Runs on every dispatch, in
@@ -151,6 +153,10 @@ class Bus {
   /// optimistic dispatch flows through the SAME subscribers as a remote one but
   /// lands as a pending overlay.
   void dispatch(Msg msg, {bool optimistic = false, String? correlationId}) {
+    // Purity is enforced, not accommodated: nothing inside a traversal may
+    // dispatch (guards and reduces are pure; observers deliver async, after).
+    assert(!_firing,
+        'dispatch during a traversal — guards and reduces must be pure');
     var env =
         Envelope(msg, optimistic: optimistic, correlationId: correlationId);
     for (final g in _guards) {
@@ -158,20 +164,13 @@ class Bus {
       if (next == null) return; // vetoed
       env = next;
     }
-    if (_firing) {
-      _queued.add(env);
-      return;
-    }
     _firing = true;
     try {
-      _controller.add(env);
-      while (_queued.isNotEmpty) {
-        _controller.add(_queued.removeAt(0));
-      }
+      _spine.add(env);
     } finally {
       _firing = false;
-      _queued.clear();
     }
+    _taps.add(env);
   }
 
   /// The [M]-typed feed as a STREAM — composable (`where`/`asyncMap`), and
@@ -179,13 +178,19 @@ class Bus {
   /// (pause the subscription, the feed waits). `.listen(handler)` for the
   /// callback style.
   Stream<M> on<M extends Msg>() =>
-      _controller.stream.where((e) => e.msg is M).map((e) => e.msg as M);
+      _taps.stream.where((e) => e.msg is M).map((e) => e.msg as M);
 
   /// Like [on], but paired with each message's [Envelope] — for the rare
   /// effect that needs provenance/correlation.
-  Stream<(M, Envelope)> envelopesOf<M extends Msg>() => _controller.stream
+  Stream<(M, Envelope)> envelopesOf<M extends Msg>() => _taps.stream
       .where((e) => e.msg is M)
       .map((e) => (e.msg as M, e));
+
+  /// The synchronous spine — memories fold on it so state is settled when
+  /// dispatch returns. Observation belongs on [on]/[envelopesOf].
+  @internal
+  Stream<(M, Envelope)> spine<M extends Msg>() =>
+      _spine.stream.where((e) => e.msg is M).map((e) => (e.msg as M, e));
 
   bool _connected = true;
   final StreamController<bool> _conn = StreamController<bool>.broadcast(sync: true);
@@ -205,7 +210,8 @@ class Bus {
   }
 
   void close() {
-    _controller.close();
+    _spine.close();
+    _taps.close();
     _conn.close();
   }
 }
@@ -261,7 +267,7 @@ abstract class Awaits<K, E, R extends Msg> {
 
   /// Engine-facing: the in-flight key stream. [R] is reified here, where the
   /// twin knows its own family — the data store never names it.
-  Stream<K> keys(Bus bus) => bus.on<R>().map(keyOf);
+  Stream<K> keys(Bus bus) => bus.spine<R>().map((r) => keyOf(r.$1));
 }
 
 /// The unit form: ANY [R] fact puts the unit in flight (a unit has one key —
@@ -271,7 +277,7 @@ abstract class Awaits<K, E, R extends Msg> {
 final class AwaitsUnit<R extends Msg> {
   const AwaitsUnit();
 
-  Stream<void> events(Bus bus) => bus.on<R>().map((_) {});
+  Stream<void> events(Bus bus) => bus.spine<R>().map((_) {});
 }
 
 /// The UNIT sibling of [Store]: one value, cardinality one — for entities
@@ -304,7 +310,7 @@ class UnitMemory<S, M extends Msg> {
   UnitMemory(this._spec, Bus bus)
       : _base = _spec.initial,
         _eff = _spec.initial {
-    _sub = bus.envelopesOf<M>().listen((r) => _apply(r.$1, r.$2));
+    _sub = bus.spine<M>().listen((r) => _apply(r.$1, r.$2));
     _awaitsSub = _spec.awaits?.events(bus).listen((_) {
       if (_loading) return;
       _loading = true;
@@ -427,10 +433,9 @@ class UnitMemory<S, M extends Msg> {
       _changes.add(null);
     }
   }
-  final StreamController<void> _changes =
-      StreamController<void>.broadcast(sync: true);
+  final StreamController<void> _changes = StreamController<void>.broadcast();
   final StreamController<UnitEvent<S, M>> _events =
-      StreamController<UnitEvent<S, M>>.broadcast(sync: true);
+      StreamController<UnitEvent<S, M>>.broadcast();
   late final StreamSubscription<Object?> _sub;
   late final StreamSubscription<void>? _awaitsSub;
 
@@ -502,7 +507,7 @@ class _Pending<M> {
 /// after a superseding write keeps the superseding write — see the test.
 class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   StoreMemory(this._reg, Bus bus) {
-    _sub = bus.envelopesOf<M>().listen((r) => _apply(r.$1, r.$2));
+    _sub = bus.spine<M>().listen((r) => _apply(r.$1, r.$2));
     // the correlation twin: request facts mark their key loading; the next
     // fold that touches the key confirms it (see _apply).
     _awaitsSub = _reg.awaits?.keys(bus).listen(markLoading);
@@ -517,11 +522,11 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   late IdentifiableMap<K, E> _eff = _reg.initial; // base folded through pending overlays (cache)
   final Map<K, Flags> _flags = {};
   final List<_Pending<M>> _pending = []; // ordered optimistic overlays
-  final StreamController<K> _changes = StreamController<K>.broadcast(sync: true);
+  final StreamController<K> _changes = StreamController<K>.broadcast();
   final StreamController<void> _structure =
-      StreamController<void>.broadcast(sync: true);
+      StreamController<void>.broadcast();
   final StreamController<StoreEvent<K, E, M>> _events =
-      StreamController<StoreEvent<K, E, M>>.broadcast(sync: true);
+      StreamController<StoreEvent<K, E, M>>.broadcast();
   late final StreamSubscription<Object?> _sub;
   late final StreamSubscription<K>? _awaitsSub;
   late final StreamSubscription<bool> _connSub;

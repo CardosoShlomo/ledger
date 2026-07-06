@@ -52,34 +52,45 @@ final class _Flow extends Unit<String, _FlowMsg> {
 }
 
 void main() {
-  test('one event per delivered message, cause and consequence atomic', () {
+  test('one event per delivered message, cause and consequence atomic', () async {
     final bus = Bus();
     final docs = StoreMemory(const _Docs(), bus);
     final seen = <StoreEvent<String, _Doc, _DocMsg>>[];
     docs.events.listen(seen.add);
 
     bus.dispatch(_Put('a', 'x'));
+    await Future<void>.delayed(Duration.zero);
     expect(seen, hasLength(1));
+    await Future<void>.delayed(Duration.zero);
     expect(seen.last.msg, isA<_Put>());
+    await Future<void>.delayed(Duration.zero);
     expect(seen.last.before['a'], isNull);
+    await Future<void>.delayed(Duration.zero);
     expect(seen.last.after['a']!.text, 'x');
+    await Future<void>.delayed(Duration.zero);
     expect(seen.last.changed, {'a'});
+    await Future<void>.delayed(Duration.zero);
     expect(seen.last.structural, isTrue);
 
     bus.dispatch(_Put('a', 'y')); // value change, same keys
+    await Future<void>.delayed(Duration.zero);
     expect(seen.last.changed, {'a'});
+    await Future<void>.delayed(Duration.zero);
     expect(seen.last.structural, isFalse);
 
     bus.dispatch(_Noop()); // no-op fold still emits — msg filters see it
+    await Future<void>.delayed(Duration.zero);
     expect(seen, hasLength(3));
+    await Future<void>.delayed(Duration.zero);
     expect(seen.last.changed, isEmpty);
 
     bus.dispatch(_Drop('a'));
+    await Future<void>.delayed(Duration.zero);
     expect(seen.last.structural, isTrue);
   });
 
   test('unit events carry before/after — transition filters need no dedupe',
-      () {
+      () async {
     final bus = Bus();
     final flow = UnitMemory(const _Flow(), bus);
     final transitions = <(String, String)>[];
@@ -90,6 +101,7 @@ void main() {
     bus.dispatch(_Go());
     bus.dispatch(_Go()); // running → running: filtered out
     bus.dispatch(_Stop());
+    await Future<void>.delayed(Duration.zero);
     expect(transitions, [('idle', 'running'), ('running', 'idle')]);
   });
 }

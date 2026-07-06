@@ -74,13 +74,14 @@ void main() {
     expect(store['a']?.value, 5);
   });
 
-  test('changes stream emits the key per mutation', () {
+  test('changes stream emits the key per mutation', () async {
     final bus = Bus();
     final store = StoreMemory(const _Counter(), bus);
     final keys = <String>[];
     store.changes.listen(keys.add);
     bus.dispatch(_Inc('a', 1));
     bus.dispatch(_Inc('b', 1));
+    await Future<void>.delayed(Duration.zero);
     expect(keys, ['a', 'b']);
   });
 }

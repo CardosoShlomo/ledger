@@ -99,7 +99,7 @@ void main() {
     expect(users.values, isEmpty);
   });
 
-  test('a source change re-announces exactly the claimed keys', () {
+  test('a source change re-announces exactly the claimed keys', () async {
     final bus = Bus();
     final users = StoreMemory(const _Users(), bus);
     final self = UnitMemory(const _SelfUnit(), bus);
@@ -108,13 +108,17 @@ void main() {
     users.changes.listen(announced.add);
 
     bus.dispatch(_SignedIn('me', 'Me', 'hi'));
+    await Future<void>.delayed(Duration.zero);
     expect(announced, ['me']);
 
     bus.dispatch(_SignedIn('me2', 'Me2', 'hi')); // account switch: claim moves
+    await Future<void>.delayed(Duration.zero);
     expect(announced, ['me', 'me', 'me2']); // old key released, new answered
 
     bus.dispatch(_SignedOut());
+    await Future<void>.delayed(Duration.zero);
     expect(announced.last, 'me2'); // the released claim re-announces
+    await Future<void>.delayed(Duration.zero);
     expect(users['me2'], isNull);
   });
 
@@ -156,7 +160,7 @@ void main() {
       expect(users['u1']?.name, 'ana-live');
     });
 
-    test('a source key change announces exactly that key', () {
+    test('a source key change announces exactly that key', () async {
       final bus = Bus();
       final locals = StoreMemory(const _LocalUsers(), bus);
       final users = StoreMemory(const _Users(), bus)
@@ -165,7 +169,9 @@ void main() {
       users.changes.listen(announced.add);
       bus.dispatch(_Saved('u7', 'ben'));
 
+      await Future<void>.delayed(Duration.zero);
       expect(announced, contains('u7'));
+      await Future<void>.delayed(Duration.zero);
       expect(announced, isNot(contains('u1')));
     });
 
