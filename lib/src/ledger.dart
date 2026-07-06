@@ -67,7 +67,6 @@ class Ledger {
   final List<void Function(String)> _rollbacks = []; // per-store overlay rollback
   final List<void Function()> _disposers = []; // dispose the stores `close` owns
   int _seq = 0; // monotonic correlation id source (no time/random dependency)
-  late final StreamSubscription<Object?> _sub;
   late final StreamSubscription<bool> _connSub;
 
   /// Place [spec] at the CURRENT row of the queue: rows registered before it
