@@ -1,3 +1,7 @@
+## 0.4.0
+
+- Regent citizen base; positional Guard/Veto rows; segmented queue; keyed verdicts.
+
 ## 0.3.0
 
 - Observation is async (post-cut): store streams and `ledger.on` deliver after the traversal; dispatch during a fold/guard asserts.
