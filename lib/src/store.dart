@@ -150,13 +150,9 @@ class Bus {
   /// common remote/optimistic); `optimistic` is the overlay-routing signal — an
   /// optimistic dispatch flows through the SAME subscribers as a remote one but
   /// lands as a pending overlay.
-  void dispatch(Msg msg,
-      {Source? source, bool optimistic = false, String? correlationId}) {
-    var env = Envelope(msg,
-        source: source ??
-            (optimistic ? CommonSource.optimistic : CommonSource.remote),
-        optimistic: optimistic,
-        correlationId: correlationId);
+  void dispatch(Msg msg, {bool optimistic = false, String? correlationId}) {
+    var env =
+        Envelope(msg, optimistic: optimistic, correlationId: correlationId);
     for (final g in _guards) {
       final next = g(env.msg, env);
       if (next == null) return; // vetoed
@@ -579,7 +575,7 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
     final touched = _diff(before, _base);
     for (final k in touched) {
       if (_base.containsKey(k)) {
-        _flags[k] = Flags(source: env.source, stability: Stability.confirmed);
+        _flags[k] = const Flags(stability: Stability.confirmed);
       } else {
         _flags.remove(k);
       }
@@ -619,8 +615,7 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
       m = _reg.reduce(m, p.msg);
     }
     for (final k in _diff(before, m)) {
-      _flags[k] =
-          Flags(source: CommonSource.optimistic, stability: Stability.reverted);
+      _flags[k] = const Flags(stability: Stability.reverted);
     }
     _refresh(const {});
   }
@@ -689,20 +684,17 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   /// True when an overlay currently changes [key]'s effective value from base.
   bool _overlaid(K key) => !identical(_eff[key], _base[key]);
 
-  /// Flags at [key]: `optimistic`/`pending` while an overlay changes it, else the
+  /// Flags at [key]: `pending` while an overlay changes it, else the
   /// confirmed base flags.
   Flags? flagsOf(K key) {
     if (_overlaid(key)) {
-      return const Flags(
-          source: CommonSource.optimistic, stability: Stability.pending);
+      return const Flags(stability: Stability.pending);
     }
     return _flags[key];
   }
 
-  void _setStability(K key, Stability s, {Source? source}) {
-    final cur = _flags[key];
-    _flags[key] =
-        Flags(source: source ?? cur?.source ?? CommonSource.remote, stability: s);
+  void _setStability(K key, Stability s) {
+    _flags[key] = Flags(stability: s);
     _changes.add(key);
   }
 

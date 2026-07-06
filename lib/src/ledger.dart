@@ -26,7 +26,7 @@ class Ledger {
         e = next;
       }
       _posted.dispatch(e.msg,
-          source: e.source, optimistic: e.optimistic, correlationId: e.correlationId);
+          optimistic: e.optimistic, correlationId: e.correlationId);
     });
     // connection state flows to the registries too.
     _connSub = journal.connection.listen(_posted.setConnected);
@@ -57,10 +57,9 @@ class Ledger {
       guard<M>((msg, env) => test(msg) ? null : env);
 
   /// Push a message onto the journal (it then posts through the guards).
-  void dispatch(Msg msg,
-          {Source? source, bool optimistic = false, String? correlationId}) =>
+  void dispatch(Msg msg, {bool optimistic = false, String? correlationId}) =>
       journal.dispatch(msg,
-          source: source, optimistic: optimistic, correlationId: correlationId);
+          optimistic: optimistic, correlationId: correlationId);
 
   /// The MANUAL-STORE door: subscribe to typed messages the ledger ADMITTED —
   /// the exact feed registered stores reduce — and wire your own reduce logic

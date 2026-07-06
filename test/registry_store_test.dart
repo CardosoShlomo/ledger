@@ -44,16 +44,16 @@ void main() {
     bus.dispatch(_Inc('a', 5));
     expect(store['a']?.value, 5);
     expect(store.flagsOf('a'),
-        const Flags(source: CommonSource.remote, stability: Stability.confirmed));
+        const Flags(stability: Stability.confirmed));
     bus.dispatch(_Inc('a', 3));
     expect(store['a']?.value, 8);
   });
 
-  test('optimistic dispatch tags the source flag', () {
+  test('an overlaid key reads pending', () {
     final bus = Bus();
     final store = StoreMemory(const _Counter(), bus);
-    bus.dispatch(_Inc('a', 1), source: CommonSource.optimistic);
-    expect(store.flagsOf('a')?.source, CommonSource.optimistic);
+    bus.dispatch(_Inc('a', 1), optimistic: true, correlationId: 'C1');
+    expect(store.flagsOf('a')?.stability, Stability.pending);
   });
 
   test('reduce -> null removes the entry and its flags', () {

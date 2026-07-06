@@ -40,7 +40,7 @@ void main() {
     expect(store['a']?.value, 15); // EFFECTIVE = base + overlay
     expect(store.confirmed('a')?.value, 10); // base untouched
     expect(store.flagsOf('a'),
-        const Flags(source: CommonSource.optimistic, stability: Stability.pending));
+        const Flags(stability: Stability.pending));
   });
 
   test('remote with matching correlationId confirms (promote + drop overlay)', () {
