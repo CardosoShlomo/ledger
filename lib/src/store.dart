@@ -657,14 +657,36 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   /// local/offline store shadowing the live one. The source's own merges
   /// apply (chains compose); the projection decides precedence per key
   /// (main-wins = `row ?? local`).
+  ///
+  /// Unlike unit edges, a store source ALSO joins the COLLECTION reads:
+  /// [entities]/[values] union in the source's extra keys (own keys first,
+  /// then source-only keys in the source's order), and [structure] fires
+  /// when the union's shape moves. A unit projection is a synthetic answer
+  /// at one key and stays out of iteration; a store source holds real rows.
   void mergeStore<S extends Identifiable<K>>(
       StoreMemory<K, S, Msg> source, Projection<S, K, E> projection) {
     _merges.add(_MergeEdge<K, E>(
       (k) => source[k],
       (row, s) => projection.resolve(row, s as S),
     ));
+    _storeSources.add(source);
     // A source key moved → exactly that key's read may resolve differently.
     _mergeSubs.add(source.changes.listen(_changes.add));
+    // Source membership moved → the union's shape may have moved.
+    _mergeSubs.add(source.structure.listen(_structure.add));
+  }
+
+  /// Store-source edges, kept for the collection union.
+  final List<StoreMemory<K, Identifiable<K>, Msg>> _storeSources = [];
+
+  /// Own effective keys, then each store source's EXTRA keys in its order.
+  Iterable<K> get _unionKeys sync* {
+    yield* _eff.keys;
+    for (final src in _storeSources) {
+      for (final k in src._unionKeys) {
+        if (!_eff.containsKey(k)) yield k;
+      }
+    }
   }
 
   E? _resolved(K key, E? row) {
@@ -677,10 +699,12 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
     return value;
   }
 
-  /// The EFFECTIVE identity-map (base folded through the pending optimistic
-  /// overlays) — the whole keyed collection. UNROUTED: merge edges never
-  /// appear in iteration.
-  IdentifiableMap<K, E> get entities => _eff;
+  /// The EFFECTIVE keyed collection: base folded through the pending
+  /// optimistic overlays — unioned with any STORE sources' extra keys,
+  /// resolved through the edges. Unit projections stay out of iteration.
+  IdentifiableMap<K, E> get entities => _storeSources.isEmpty
+      ? _eff
+      : {for (final k in _unionKeys) k: _resolved(k, _eff[k]) as E};
 
   /// The EFFECTIVE value at [key]: confirmed base folded through the pending
   /// optimistic overlays, then through the merge edges — this is what canon
@@ -747,8 +771,11 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
     }
   }
 
-  /// All effective entries — base folded through the optimistic overlays.
-  Iterable<E> get values => _eff.values;
+  /// All effective entries — base folded through the optimistic overlays,
+  /// unioned with store-source extras (see [entities]).
+  Iterable<E> get values => _storeSources.isEmpty
+      ? _eff.values
+      : [for (final k in _unionKeys) _resolved(k, _eff[k]) as E];
 
   /// Keys whose EFFECTIVE value changed — base apply, overlay add, confirm, or
   /// rollback. Surgical, per key. (Also fires on flag-only changes; use [consume]

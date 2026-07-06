@@ -127,7 +127,22 @@ void main() {
       bus.dispatch(_Saved('u1', 'ana-from-disk'));
 
       expect(users['u1']?.name, 'ana-from-disk'); // no loading screen
-      expect(users.entities.containsKey('u1'), isFalse); // collection honest
+      // Store sources JOIN the collection: the list renders from the shadow.
+      expect(users.entities.containsKey('u1'), isTrue);
+      expect(users.values.map((u) => u.name), contains('ana-from-disk'));
+    });
+
+    test('the union orders own keys first, source extras after', () {
+      final bus = Bus();
+      final locals = StoreMemory(const _LocalUsers(), bus);
+      final users = StoreMemory(const _Users(), bus)
+        ..mergeStore(locals, const _LocalSupportsUser());
+      bus.dispatch(_Saved('u1', 'ana-disk'));
+      bus.dispatch(_Saved('u2', 'ben-disk'));
+      bus.dispatch(_Loaded('u2', 'ben-live'));
+
+      expect(users.entities.keys, ['u2', 'u1']); // own first, extras after
+      expect(users['u2']?.name, 'ben-live'); // main wins where it speaks
     });
 
     test('main wins the moment it speaks', () {
