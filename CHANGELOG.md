@@ -1,3 +1,10 @@
+## 0.3.0
+
+- Observation is async (post-cut): store streams and `ledger.on` deliver after the traversal; dispatch during a fold/guard asserts.
+- `mergeStore`: keyed-store merge sources; store sources join the collection union.
+- `Source`/`CommonSource` removed — provenance is said by types and stores.
+- Event-stream verbs: `transitions`, `entering`, `on<M>` on store event streams.
+
 ## 0.2.0
 
 - `Verdict`: the write correlation twin — prediction + resolver types, settled by state comparison.
