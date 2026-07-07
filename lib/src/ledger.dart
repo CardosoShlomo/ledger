@@ -15,7 +15,7 @@ import 'store.dart';
 ///
 /// Dispatch onto the journal (`dispatch`), subscribe to admitted messages
 /// (`on`), tap the raw record (`journal.on`), and register stores via `store`.
-class Ledger {
+class Ledger implements LedgerRows {
   Ledger() {
     // Every journal message enters the FIRST segment of the queue; guards
     // forward (or drop, or rewrite) between segments; the last segment
@@ -69,10 +69,21 @@ class Ledger {
   int _seq = 0; // monotonic correlation id source (no time/random dependency)
   late final StreamSubscription<bool> _connSub;
 
+  /// The declared form: a ledger CONSTRUCTED from its regent enum — [rows]
+  /// must be the enum's full `values` list, so the citizen list is closed
+  /// and row order IS queue order. [stores] is the read-only facade every
+  /// guard row judges through (required when the spec has guards). Memories
+  /// are read back per row, and [SpecLedger.on] reads the feed at any
+  /// declared position.
+  static SpecLedger<R> of<R extends RegentNode<R>>(List<R> rows,
+          {Object? stores}) =>
+      SpecLedger._(rows, stores);
+
   /// Place [spec] at the CURRENT row of the queue: rows registered before it
   /// see every message; rows after it see only what it admits (possibly
   /// rewritten). [stores] is the read-only facade the judge sees the world
   /// through.
+  @override
   void guard<M extends Msg, S>(Guard<M, S> spec, S stores) {
     final source = _tail;
     final seg = Bus();
@@ -158,6 +169,7 @@ class Ledger {
 
   /// A live store for [spec], standing at the CURRENT row: it folds
   /// whatever survives the guards declared above it.
+  @override
   StoreMemory<K, E, M> store<K, E extends Identifiable<K>, M extends Msg>(
       Store<K, E, M> spec) {
     final mem = StoreMemory<K, E, M>(spec, _tail);
@@ -167,6 +179,7 @@ class Ledger {
   }
 
   /// A live UNIT store for [spec] (cardinality one, keyless facts).
+  @override
   UnitMemory<S, M> unit<S, M extends Msg>(Unit<S, M> spec) {
     final mem = UnitMemory<S, M>(spec, _tail);
     _rollbacks.add(mem.rollback);
@@ -189,4 +202,40 @@ class Ledger {
     }
     _posted.close();
   }
+}
+
+/// A ledger built from its DECLARED regent enum ([Ledger.of]): the citizen
+/// list is closed, row order is queue order, and every gap between rows is a
+/// named observation point. `on<M>()` keeps the base meaning (past the last
+/// row — fully admitted); `on<M>(before: row)` reads the feed exactly as it
+/// reaches that citizen, so `before: rows.first` is the raw ingress and
+/// `before: someStore` is what that store folds.
+final class SpecLedger<R extends RegentNode<R>> extends Ledger {
+  SpecLedger._(this.rows, Object? stores) {
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].index != i) {
+        throw ArgumentError(
+            'rows must be the regent enum\'s full `values` list in order; '
+            'row ${rows[i].name} sits at ${rows[i].index}, got position $i');
+      }
+    }
+    for (final row in rows) {
+      _sources[row] = _tail;
+      _memories[row] = row.regent.mount(this, stores);
+    }
+  }
+
+  /// The declared citizen list — the enum's `values`, verbatim.
+  final List<R> rows;
+
+  final Map<R, Bus> _sources = {};
+  final Map<R, Object?> _memories = {};
+
+  /// [row]'s live memory: a `StoreMemory` for store rows, a `UnitMemory`
+  /// for unit rows, null for guard rows.
+  Object? memoryOf(R row) => _memories[row];
+
+  @override
+  Stream<M> on<M extends Msg>({R? before}) =>
+      before == null ? super.on<M>() : _sources[before]!.on<M>();
 }

@@ -71,6 +71,22 @@ abstract interface class AnyStore {}
 @immutable
 abstract base class Regent {
   const Regent();
+
+  /// Registers this citizen at the ledger's current row with its OWN type
+  /// arguments intact (double dispatch — a type-erased switch would fold
+  /// every message into every store). Returns the live memory (stores,
+  /// units) or null (guards). Engine-facing: [Ledger.of] drives it.
+  Object? mount(LedgerRows ledger, Object? stores);
+}
+
+/// The registration face [Regent.mount] dispatches into — [Ledger]
+/// implements it; the indirection keeps the citizen tiers free of the
+/// ledger's own import.
+abstract interface class LedgerRows {
+  StoreMemory<K, E, M> store<K, E extends Identifiable<K>, M extends Msg>(
+      Store<K, E, M> spec);
+  UnitMemory<S, M> unit<S, M extends Msg>(Unit<S, M> spec);
+  void guard<M extends Msg, S>(covariant Object spec, S stores);
 }
 
 /// A PURE interceptor in the dispatch pipeline: inspect/transform an envelope,
@@ -273,6 +289,10 @@ abstract base class Store<K, E extends Identifiable<K>, M extends Msg>
   /// `entities.upsert(x)` · `entities.upsertAll(xs)` · `entities.removeById(id)`
   /// · `entities.updateById(id, (cur) => …)`.
   IdentifiableMap<K, E> reduce(IdentifiableMap<K, E> entities, M msg);
+
+  @override
+  StoreMemory<K, E, M> mount(LedgerRows ledger, Object? stores) =>
+      ledger.store(this);
 }
 
 /// The correlation twin of a [Store]: names the request family [R] (kept OUT
@@ -336,6 +356,10 @@ abstract base class Unit<S, M extends Msg> extends Regent
 
   /// Fold a message into the value and return the NEXT value. PURE.
   S reduce(S state, M msg);
+
+  @override
+  UnitMemory<S, M> mount(LedgerRows ledger, Object? stores) =>
+      ledger.unit(this);
 }
 
 /// The live memory for a [Unit]: the value driven off a [Bus].

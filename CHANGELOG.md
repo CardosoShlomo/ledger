@@ -1,3 +1,7 @@
+## 0.6.0
+
+- `Ledger.of(rows)`: the declared ledger — closed citizen list from the regent enum; `memoryOf(row)`; positional `on<M>(before: row)` reads the feed at any declared row.
+
 ## 0.5.0
 
 - Row-grain store feed: `rowChanges()` + `inserted`/`updated`/`upserted`/`deleted` stream verbs.

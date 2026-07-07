@@ -17,6 +17,12 @@ abstract base class Guard<M extends Msg, S> extends Regent {
   const Guard();
 
   Msg? judge(Envelope env, M msg, S stores);
+
+  @override
+  Null mount(LedgerRows ledger, Object? stores) {
+    ledger.guard<M, S>(this, stores as S);
+    return null;
+  }
 }
 
 /// The refusing specialization — a guard that only ever passes or drops.
