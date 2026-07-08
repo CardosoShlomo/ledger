@@ -71,25 +71,56 @@ class Ledger implements LedgerRows {
 
   /// The declared form: a ledger CONSTRUCTED from its regent enum — [rows]
   /// must be the enum's full `values` list, so the citizen list is closed
-  /// and row order IS queue order. [stores] is the read-only facade every
-  /// guard row judges through (required when the spec has guards). Memories
-  /// are read back per row, and [SpecLedger.on] reads the feed at any
-  /// declared position.
-  static SpecLedger<R> of<R extends RegentNode<R>>(List<R> rows,
-          {Object? stores}) =>
-      SpecLedger._(rows, stores);
+  /// and row order IS queue order. Guard rows judge through [read] — this
+  /// ledger's own state, no facade. Memories are read back per row, and
+  /// [SpecLedger.on] reads the feed at any declared position.
+  static SpecLedger<R> of<R extends RegentNode<R>>(List<R> rows) =>
+      SpecLedger._(rows);
+
+  // ── Citizen-identity state lookup (guards judge through it) ──
+
+  // Memories keyed by their spec INSTANCE. Const canonicalization makes the
+  // constructor expression the citizen's name; registration rejects a
+  // duplicate identical instance, so the lookup is total and unambiguous.
+  final Map<Object, Object> _specMemories = Map.identity();
+
+  /// This ledger's own state by citizen identity — what every guard row
+  /// judges through: `read(const BrowseDeck())` is the deck's keyed
+  /// collection, `read(const AuthMachine())` the unit's value.
+  S read<S>(AnyStore<S> spec) {
+    final memory = _specMemories[spec] ??
+        (throw StateError(
+            'no row holds this ${spec.runtimeType} instance — the lookup is '
+            'by IDENTITY: match the row\'s constructor args exactly, and '
+            'spell `const` (a non-const expression is a fresh instance).'));
+    return switch (memory) {
+      final StoreMemory m => m.entities as S,
+      final UnitMemory m => m.value as S,
+      _ => throw StateError('unreadable memory for ${spec.runtimeType}'),
+    };
+  }
+
+  void _enroll(Object spec, Object memory) {
+    if (_specMemories.containsKey(spec)) {
+      throw StateError(
+          'two rows hold the identical ${spec.runtimeType} instance — const '
+          'canonicalization makes them one citizen. Differ the args or '
+          'subclass to declare two.');
+    }
+    _specMemories[spec] = memory;
+  }
 
   /// Place [spec] at the CURRENT row of the queue: rows registered before it
   /// see every message; rows after it see only what it admits (possibly
-  /// rewritten). [stores] is the read-only facade the judge sees the world
-  /// through.
+  /// rewritten). The judge reads the world through this ledger's own
+  /// [read] function.
   @override
-  void guard<M extends Msg, S>(Guard<M, S> spec, S stores) {
+  void guard<M extends Msg>(covariant Guard<M> spec) {
     final source = _tail;
     final seg = Bus();
     _forwards.add(source.spine<Msg>().listen((r) {
       final (msg, env) = r;
-      final next = msg is M ? spec.judge(env, msg, stores) : msg;
+      final next = msg is M ? spec.judge(env, msg, read) : msg;
       if (next == null) return; // dropped — journal keeps it, rows below don't
       seg.dispatch(next,
           optimistic: env.optimistic, correlationId: env.correlationId);
@@ -173,6 +204,7 @@ class Ledger implements LedgerRows {
   StoreMemory<K, E, M> store<K, E extends Identifiable<K>, M extends Msg>(
       Store<K, E, M> spec) {
     final mem = StoreMemory<K, E, M>(spec, _tail);
+    _enroll(spec, mem);
     _rollbacks.add(mem.rollback);
     _disposers.add(mem.dispose);
     return mem;
@@ -182,6 +214,7 @@ class Ledger implements LedgerRows {
   @override
   UnitMemory<S, M> unit<S, M extends Msg>(Unit<S, M> spec) {
     final mem = UnitMemory<S, M>(spec, _tail);
+    _enroll(spec, mem);
     _rollbacks.add(mem.rollback);
     _disposers.add(mem.dispose);
     return mem;
@@ -211,7 +244,7 @@ class Ledger implements LedgerRows {
 /// reaches that citizen, so `before: rows.first` is the raw ingress and
 /// `before: someStore` is what that store folds.
 final class SpecLedger<R extends RegentNode<R>> extends Ledger {
-  SpecLedger._(this.rows, Object? stores) {
+  SpecLedger._(this.rows) {
     for (var i = 0; i < rows.length; i++) {
       if (rows[i].index != i) {
         throw ArgumentError(
@@ -221,7 +254,7 @@ final class SpecLedger<R extends RegentNode<R>> extends Ledger {
     }
     for (final row in rows) {
       _sources[row] = _tail;
-      _memories[row] = row.regent.mount(this, stores);
+      _memories[row] = row.regent.mount(this);
     }
   }
 
@@ -239,3 +272,4 @@ final class SpecLedger<R extends RegentNode<R>> extends Ledger {
   Stream<M> on<M extends Msg>({R? before}) =>
       before == null ? super.on<M>() : _sources[before]!.on<M>();
 }
+

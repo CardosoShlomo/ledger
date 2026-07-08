@@ -22,11 +22,10 @@ typedef LedgerState<R> = Map<R, Object?>;
 ///   expect(replay(Rows.values, [cache, authority]),
 ///          equals(replay(Rows.values, [authority, cache])));  // converges
 ///
-/// [stores] is the read-only facade guard rows judge through — required only
-/// when the ledger has guards.
-LedgerState<R> replay<R extends RegentNode<R>>(List<R> rows, List<Msg> order,
-    {Object? stores}) {
-  final ledger = Ledger.of(rows, stores: stores);
+/// Guard rows judge through the replayed ledger's OWN `read`, so a
+/// gate-bearing enum replays with no external wiring.
+LedgerState<R> replay<R extends RegentNode<R>>(List<R> rows, List<Msg> order) {
+  final ledger = Ledger.of(rows);
   for (final msg in order) {
     ledger.dispatch(msg);
   }

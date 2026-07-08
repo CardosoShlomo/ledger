@@ -41,11 +41,18 @@ final class _Volume extends Unit<int, _Msg> {
       switch (msg) { _Shout() => state + 1, _Put() => state };
 }
 
-final class _NoEmptyShouts extends Veto<_Shout, void> {
+/// Not enrolled in any row — the identity lookup must refuse it.
+final class _Stranger extends Unit<int, _Msg> {
+  const _Stranger() : super(0);
+  @override
+  int reduce(int s, _Msg m) => s;
+}
+
+final class _NoEmptyShouts extends Veto<_Shout> {
   const _NoEmptyShouts();
 
   @override
-  bool block(Envelope env, _Shout msg, void stores) => msg.text.isEmpty;
+  bool block(Envelope env, _Shout msg, ReadStore read) => msg.text.isEmpty;
 }
 
 enum _Rows with RegentNode<_Rows> {
@@ -98,5 +105,21 @@ void main() {
   test('a sliced or reordered rows list is rejected', () {
     expect(() => Ledger.of([_Rows.gate, _Rows.volume]), throwsArgumentError);
     expect(() => Ledger.of([_Rows.docs, _Rows.volume]), throwsArgumentError);
+  });
+
+  test('two rows holding the identical const instance are one citizen — rejected',
+      () {
+    final ledger = Ledger();
+    ledger.store(const _Docs());
+    expect(() => ledger.store(const _Docs()), throwsStateError);
+    ledger.close();
+  });
+
+  test('reading a spec no row holds throws (identity lookup)', () {
+    final ledger = Ledger.of(_Rows.values);
+    expect(() => ledger.read(const _Volume()), returnsNormally);
+    expect(() => ledger.read(const _Docs()), returnsNormally);
+    expect(() => ledger.read(const _Stranger()), throwsStateError);
+    ledger.close();
   });
 }

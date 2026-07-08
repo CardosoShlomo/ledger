@@ -26,7 +26,10 @@ class _Reset extends _CountMsg with Identifiable<String> {
 }
 
 final class _Counter extends Store<String, _CountState, _CountMsg> {
-  const _Counter();
+  // [lane] distinguishes two rows of this store in one ledger — identical
+  // const instances are ONE citizen (identity keying), so rows must differ.
+  const _Counter([this.lane = 0]);
+  final int lane;
   @override
   IdentifiableMap<String, _CountState> reduce(
           IdentifiableMap<String, _CountState> entities, _CountMsg m) =>
@@ -64,7 +67,7 @@ void main() {
     final ledger = Ledger();
     final above = ledger.store(const _Counter()); // folds BEFORE the guard
     ledger.veto<_Reset>((_) => true);
-    final below = ledger.store(const _Counter()); // sees only what survives
+    final below = ledger.store(const _Counter(1)); // sees only what survives
 
     ledger.dispatch(_Inc('a', 5));
     ledger.dispatch(_Reset('a'));

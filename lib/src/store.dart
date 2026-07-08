@@ -51,8 +51,20 @@ class RegentMerge<Self extends RegentNode<Self>> {
       RegentMerge<Self>(target, [...edges, (source, projection)]);
 }
 
-/// What a `@stores` row may hold: a keyed [Store] or a [Unit].
-abstract interface class AnyStore {}
+/// What a `@stores` row may hold: a keyed [Store] or a [Unit]. [S] is the
+/// state a `read` of the citizen returns — the keyed collection for a store,
+/// the value for a unit — so one typed lookup serves both kinds.
+abstract interface class AnyStore<S> {}
+
+/// A guard's view of the world: this ledger's own state, looked up by
+/// citizen IDENTITY — `read(const BrowseDeck())`, `read(const AuthMachine())`.
+/// Const canonicalization makes the constructor expression the citizen's
+/// canonical NAME: `const X()` written in a judge IS the instance the row
+/// holds (same class, different args = a different citizen; two rows may not
+/// hold identical instances — enforced at registration). Bound to the ledger
+/// the guard stands in, so a replayed ledger reads itself. Throws when no
+/// row holds the instance (wrong args, or a missing `const`).
+typedef ReadStore = S Function<S>(AnyStore<S> spec);
 
 /// A CITIZEN of the ledger — anything that occupies a row of the regents
 /// enum: stores, units, guards, vetoes. Row order is traversal order: a
@@ -76,8 +88,10 @@ abstract base class Regent {
   /// Registers this citizen at the ledger's current row with its OWN type
   /// arguments intact (double dispatch — a type-erased switch would fold
   /// every message into every store). Returns the live memory (stores,
-  /// units) or null (guards). Engine-facing: [Ledger.of] drives it.
-  Object? mount(LedgerRows ledger, Object? stores);
+  /// units) or null (guards). [Ledger.of] drives it; consumers register via
+  /// `Ledger.of(rows)` or `ledger.store/unit/guard(spec)`.
+  @internal
+  Object? mount(LedgerRows ledger);
 }
 
 /// The registration face [Regent.mount] dispatches into — [Ledger]
@@ -87,8 +101,9 @@ abstract interface class LedgerRows {
   StoreMemory<K, E, M> store<K, E extends Identifiable<K>, M extends Msg>(
       Store<K, E, M> spec);
   UnitMemory<S, M> unit<S, M extends Msg>(Unit<S, M> spec);
-  void guard<M extends Msg, S>(covariant Object spec, S stores);
+  void guard<M extends Msg>(covariant Object spec);
 }
+
 
 /// A PURE interceptor in the dispatch pipeline: inspect/transform an envelope,
 /// One fold's full story, emitted by a store AFTER the reduce ran: the cause
@@ -262,7 +277,7 @@ class Bus {
 /// store ([StoreMemory]) is created separately and wired to a [Bus].
 @immutable
 abstract base class Store<K, E extends Identifiable<K>, M extends Msg>
-    extends Regent implements AnyStore {
+    extends Regent implements AnyStore<IdentifiableMap<K, E>> {
   const Store({this.initial = const {}, this.awaits, this.verdict});
 
   /// The collection before any fact has arrived — empty unless seeded.
@@ -293,8 +308,7 @@ abstract base class Store<K, E extends Identifiable<K>, M extends Msg>
   IdentifiableMap<K, E> reduce(IdentifiableMap<K, E> entities, M msg);
 
   @override
-  StoreMemory<K, E, M> mount(LedgerRows ledger, Object? stores) =>
-      ledger.store(this);
+  StoreMemory<K, E, M> mount(LedgerRows ledger) => ledger.store(this);
 }
 
 /// The correlation twin of a [Store]: names the request family [R] (kept OUT
@@ -339,7 +353,7 @@ final class AwaitsUnit<R extends Msg> {
 /// viewer profile, a requests+unseen state). Same purity contract.
 @immutable
 abstract base class Unit<S, M extends Msg> extends Regent
-    implements AnyStore {
+    implements AnyStore<S> {
   const Unit(this.initial, {this.awaits, this.verdict});
 
   /// The value before any fact has arrived.
@@ -361,8 +375,7 @@ abstract base class Unit<S, M extends Msg> extends Regent
   S reduce(S state, M msg);
 
   @override
-  UnitMemory<S, M> mount(LedgerRows ledger, Object? stores) =>
-      ledger.unit(this);
+  UnitMemory<S, M> mount(LedgerRows ledger) => ledger.unit(this);
 }
 
 /// The live memory for a [Unit]: the value driven off a [Bus].
