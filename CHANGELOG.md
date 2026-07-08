@@ -1,3 +1,8 @@
+## 0.8.0
+
+- BREAKING: guards judge through `read` — `Guard<M, S>` → `Guard<M>`, `judge(env, msg, ReadStore read)`; `read(const X())` is the ledger's own state by citizen identity (`AnyStore<S>` carries the type). No stores facade; `Ledger.guard(spec)` takes no facade arg; two rows may not hold identical instances.
+- `replay(rows, order)` needs no stores param — gate-bearing enums replay standalone.
+
 ## 0.7.1
 
 - identifiable ^0.6.0.
