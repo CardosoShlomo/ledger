@@ -1,3 +1,7 @@
+## 0.7.1
+
+- identifiable ^0.6.0.
+
 ## 0.7.0
 
 - `replay(rows, order)` / `replayStore`: fold a message order on a pure ledger to a state snapshot — order-(in)dependence as a law via `equals`/`isNot`.
