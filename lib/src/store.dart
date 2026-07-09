@@ -195,18 +195,14 @@ class Bus {
   final StreamController<Envelope> _taps = StreamController<Envelope>.broadcast();
   bool _firing = false;
 
-  /// Push a message through the bus. `source` tags provenance (defaults to the
-  /// common remote/optimistic); `optimistic` is the overlay-routing signal — an
-  /// optimistic dispatch flows through the SAME subscribers as a remote one but
-  /// lands as a pending overlay.
-  void dispatch(Msg msg, {bool optimistic = false, String? correlationId}) {
+  /// Push a message through the bus.
+  void dispatch(Msg msg) {
     // Purity is enforced, not accommodated: nothing inside a traversal may
     // dispatch (reduces are pure; observers deliver async, after). Guards
     // live in the LEDGER's queue, between segments — a bus is one segment.
     assert(!_firing,
         'dispatch during a traversal — guards and reduces must be pure');
-    final env =
-        Envelope(msg, optimistic: optimistic, correlationId: correlationId);
+    final env = Envelope(msg);
     _firing = true;
     try {
       _spine.add(env);
@@ -235,27 +231,9 @@ class Bus {
   Stream<(M, Envelope)> spine<M extends Msg>() =>
       _spine.stream.where((e) => e.msg is M).map((e) => (e.msg as M, e));
 
-  bool _connected = true;
-  final StreamController<bool> _conn = StreamController<bool>.broadcast(sync: true);
-
-  /// The transport's connection state. While connected + subscribed, a registry
-  /// is fresh (the server pushes changes); a drop means freshness is no longer
-  /// guaranteed — stores flip confirmed entries to `stale` until revalidated.
-  bool get connected => _connected;
-  Stream<bool> get connection => _conn.stream;
-
-  /// Report transport connection state (the WS adapter calls this). A drop is
-  /// the one event that invalidates everything push was keeping fresh.
-  void setConnected(bool value) {
-    if (value == _connected) return;
-    _connected = value;
-    _conn.add(value);
-  }
-
   void close() {
     _spine.close();
     _taps.close();
-    _conn.close();
   }
 }
 
@@ -265,19 +243,14 @@ class Bus {
 @immutable
 abstract base class Store<K, E extends Identifiable<K>, M extends Msg>
     extends Regent implements AnyStore<IdentifiableMap<K, E>> {
-  const Store({this.initial = const {}, this.awaits});
+  const Store({this.initial = const {}});
 
   /// The collection before any fact has arrived — empty unless seeded.
   final IdentifiableMap<K, E> initial;
 
-  /// The store's correlation twin: names the REQUEST family and carries the
-  /// scope-entry ask ([Awaits.surface]). Null when the store has no
-  /// requests — and therefore no ask.
-  final Awaits<K, E, Msg>? awaits;
-
   /// Fold a message into the registry's keyed collection and return the NEXT
-  /// collection. PURE — replayed on optimistic confirm/rollback, so no side
-  /// effects. A message may touch MANY entries (a batch load) or none. The
+  /// collection. PURE — replay depends on it; no side effects, no clocks.
+  /// A message may touch MANY entries (a batch load) or none. The
   /// `identifiable` map extensions keep it terse:
   /// `entities.upsert(x)` · `entities.upsertAll(xs)` · `entities.removeById(id)`
   /// · `entities.updateById(id, (cur) => …)`.
@@ -286,24 +259,6 @@ abstract base class Store<K, E extends Identifiable<K>, M extends Msg>
 
   @override
   StoreMemory<K, E, M> mount(LedgerRows ledger) => ledger.store(this);
-}
-
-/// The correlation twin of a [Store]: names the request family [R] (kept OUT
-/// of the store's reduce family, so reduces never carry dead request arms)
-/// and judges the SCOPE-ENTRY ask ([surface]). Holds NO state and drives no
-/// machinery — in-flight status is an honest ledger row (a consumer unit
-/// folding request facts in and answering facts out), deduped by a guard.
-@immutable
-abstract class Awaits<K, E, R extends Msg> {
-  const Awaits();
-
-  /// Door 2 — the scope-entry ask: called when a screen keyed by the
-  /// entity's id node is actually navigated to (never on a render). Return
-  /// the request fact to dispatch, or null when [row]'s knowledge suffices.
-  /// The return type IS the request family — a foreign fact is unwritable.
-  /// [row] is the RAW store state — merge edges never mask fetch-need.
-  /// PURE: judge, don't act; duplicate asks are a GUARD's job.
-  R? surface(K key, E? row) => null;
 }
 
 /// The UNIT sibling of [Store]: one value, cardinality one — for entities
@@ -327,63 +282,23 @@ abstract base class Unit<S, M extends Msg> extends Regent
 
 /// The live memory for a [Unit]: the value driven off a [Bus].
 class UnitMemory<S, M extends Msg> {
-  UnitMemory(this._spec, Bus bus)
-      : _base = _spec.initial,
-        _eff = _spec.initial {
+  UnitMemory(this._spec, Bus bus) : _base = _spec.initial {
     _sub = bus.spine<M>().listen((r) => _apply(r.$1, r.$2));
   }
 
   final Unit<S, M> _spec;
-  S _base; // confirmed truth only
-  S _eff; // base folded through pending overlays (cache)
+  S _base; // the fold's truth — the ONLY state this memory holds
 
-  /// The CONFIRMED value — no optimistic overlays. What a guard's `read`
-  /// returns.
+  /// The folded value — what a guard's `read` returns.
   S get base => _base;
-  final List<_Pending<M>> _pending = []; // ordered optimistic overlays
-  bool _reverted = false;
-
-  void _refresh() {
-    var v = _base;
-    for (final p in _pending) {
-      v = _spec.reduce(v, p.msg);
-    }
-    _eff = v;
-  }
 
   void _apply(M msg, Envelope env) {
-    // any reduce-family fact speaks over the settled-optimism flag.
-    final cleared = _reverted;
-    _reverted = false;
-    final before = _eff;
-    if (env.optimistic && env.correlationId != null) {
-      // manual optimistic overlay (ledger.command); base is NOT touched.
-      _pending.add(_Pending(env.correlationId!, msg));
-    } else {
-      // a confirmed message carrying a pending correlation id CONFIRMS it:
-      // drop the overlay; the real effect below replaces it in base.
-      final cid = env.correlationId;
-      if (cid != null) _pending.removeWhere((p) => p.correlationId == cid);
-      _base = _spec.reduce(_base, msg);
-    }
-    _refresh();
-    if (!identical(_eff, before) || cleared) _changes.add(null);
-    _events.add(UnitEvent(msg: msg, before: before, after: _eff));
+    final before = _base;
+    _base = _spec.reduce(_base, msg);
+    if (!identical(_base, before)) _changes.add(null);
+    _events.add(UnitEvent(msg: msg, before: before, after: _base));
   }
 
-  /// Discard the optimistic overlay(s) for [correlationId] — the prediction
-  /// failed. Base is untouched, so superseding writes survive. Emits no
-  /// event (no message caused it), only a change. When the value snapped
-  /// back, [reverted] holds until the next family fact speaks.
-  void rollback(String correlationId) {
-    final before = _eff;
-    _pending.removeWhere((p) => p.correlationId == correlationId);
-    _refresh();
-    if (!identical(_eff, before)) {
-      _reverted = true;
-      _changes.add(null);
-    }
-  }
   final StreamController<void> _changes = StreamController<void>.broadcast();
   final StreamController<UnitEvent<S, M>> _events =
       StreamController<UnitEvent<S, M>>.broadcast();
@@ -402,20 +317,14 @@ class UnitMemory<S, M extends Msg> {
     _mergeSubs.add(source.changes.listen((_) => _changes.add(null)));
   }
 
-  /// The value, now — base folded through pending overlays, then resolved
-  /// through the merge edges.
+  /// The value, now — the fold's truth resolved through the merge edges.
   S get value {
-    var v = _eff;
+    var v = _base;
     for (final m in _merges) {
       v = m(v);
     }
     return v;
   }
-
-  /// True after a rollback snapped the value back to base, until the next
-  /// family fact speaks — the unit-tier [Stability.reverted]: render the
-  /// failed optimism however you want.
-  bool get reverted => _reverted;
 
   /// Fires on every value change.
   Stream<void> get changes => _changes.stream;
@@ -443,51 +352,27 @@ class _MergeEdge<K, E> {
   final E Function(E? row, Object source) resolve;
 }
 
-/// One in-flight optimistic prediction: the message to re-fold over the base,
-/// tagged by the correlation id that will confirm or roll it back. Keyless — a
-/// prediction may touch any number of entries, discovered by diffing.
-class _Pending<M> {
-  _Pending(this.correlationId, this.msg);
-  final String correlationId;
-  final M msg;
-}
-
-/// The live store for a [Store]: a confirmed BASE (`identifiable.Store`) plus
-/// a provenance/stability flags sidecar, driven off a [Bus] — and an OPTIMISTIC
-/// OVERLAY on top.
-///
-/// Optimism is modelled as a pending message log, never a base mutation: an
-/// `optimistic` dispatch with a `correlationId` is recorded as an overlay; the
-/// EFFECTIVE read folds the base through the pending overlays for that key
-/// (overlay wins, base stays clean). A remote message carrying that same
-/// correlation id CONFIRMS it (drop the overlay, apply the real effect to base);
-/// [rollback] discards it. Because predictions never touch base, a rollback
-/// after a superseding write keeps the superseding write — see the test.
+/// The live store for a [Store]: the folded collection driven off a [Bus],
+/// plus read-time merge edges and the change/event feeds. It holds NO other
+/// state — optimism, in-flight status, freshness, and settlement all live in
+/// consumer ROWS (docks, in-flight units, coverage), where they replay.
 class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   StoreMemory(this._reg, Bus bus) {
     _sub = bus.spine<M>().listen((r) => _apply(r.$1, r.$2));
-    // a disconnect loses the push freshness guarantee → confirmed entries stale.
-    _connSub = bus.connection.listen((up) {
-      if (!up) invalidateAll();
-    });
   }
 
   final Store<K, E, M> _reg;
-  late IdentifiableMap<K, E> _base = _reg.initial; // confirmed truth only
+  late IdentifiableMap<K, E> _base = _reg.initial;
 
-  /// The CONFIRMED collection — no optimistic overlays, no merge edges.
-  /// What a guard's `read` returns.
+  /// The folded collection — the ONLY state this memory holds; no merge
+  /// edges. What a guard's `read` returns.
   IdentifiableMap<K, E> get base => _base;
-  late IdentifiableMap<K, E> _eff = _reg.initial; // base folded through pending overlays (cache)
-  final Map<K, Flags> _flags = {};
-  final List<_Pending<M>> _pending = []; // ordered optimistic overlays
   final StreamController<K> _changes = StreamController<K>.broadcast();
   final StreamController<void> _structure =
       StreamController<void>.broadcast();
   final StreamController<StoreEvent<K, E, M>> _events =
       StreamController<StoreEvent<K, E, M>>.broadcast();
   late final StreamSubscription<Object?> _sub;
-  late final StreamSubscription<bool> _connSub;
 
   Set<K> _diff(IdentifiableMap<K, E> a, IdentifiableMap<K, E> b) => {
         for (final k in {...a.keys, ...b.keys})
@@ -503,85 +388,33 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
     return true;
   }
 
-  /// Recompute the effective map (base folded through every pending message),
-  /// emit the keys whose effective value changed (unioned with [extra]), and
-  /// signal [structure] when the key sequence itself changed — decided ONCE
-  /// here, where both maps are in hand, so no listener ever diffs.
-  void _refresh(Set<K> extra) {
-    final prev = _eff;
-    var m = _base;
-    for (final p in _pending) {
-      m = _reg.reduce(m, p.msg);
-    }
-    _eff = m;
-    for (final k in {..._diff(prev, m), ...extra}) {
-      _changes.add(k);
-    }
-    if (!_sameKeys(prev, m)) _structure.add(null);
-  }
-
   void _apply(M msg, Envelope env) {
-    final prevEff = _eff;
-    // optimistic + correlationId → a pending overlay; base is NOT touched.
-    if (env.optimistic && env.correlationId != null) {
-      _pending.add(_Pending(env.correlationId!, msg));
-      _refresh(const {});
-      _emit(msg, env, prevEff);
-      return;
-    }
-    // a confirmed/remote message carrying a pending correlation id CONFIRMS it:
-    // drop the optimistic overlay; the real effect below replaces it in base.
-    final cid = env.correlationId;
-    if (cid != null) _pending.removeWhere((p) => p.correlationId == cid);
     final before = _base;
     _base = _reg.reduce(before, msg);
+    // Change signals decided ONCE here, where both maps are in hand, so no
+    // listener ever diffs: per changed key, plus [structure] when the key
+    // sequence itself moved.
     final touched = _diff(before, _base);
     for (final k in touched) {
-      if (_base.containsKey(k)) {
-        _flags[k] = const Flags(stability: Stability.confirmed);
-      } else {
-        _flags.remove(k);
-      }
+      _changes.add(k);
     }
-    _refresh(touched);
-    _emit(msg, env, prevEff);
-  }
-
-  // ONE event per delivered family message — even a no-op fold emits, so a
-  // msg-type filter is a complete post-fold observation of the family.
-  void _emit(M msg, Envelope env, IdentifiableMap<K, E> prevEff) {
+    if (!_sameKeys(before, _base)) _structure.add(null);
+    // ONE event per delivered family message — even a no-op fold emits, so
+    // a msg-type filter is a complete post-fold observation of the family.
     _events.add(StoreEvent(
       msg: msg,
       env: env,
-      before: prevEff,
-      after: _eff,
-      changed: _diff(prevEff, _eff),
-      structural: !_sameKeys(prevEff, _eff),
+      before: before,
+      after: _base,
+      changed: touched,
+      structural: !_sameKeys(before, _base),
     ));
   }
 
   /// The fold's full story, post-reduce: (cause, consequence) atomically —
   /// the ONE stream effects subscribe to (filters recover every narrower
-  /// feed). Rollbacks emit no event (no message caused them).
+  /// feed).
   Stream<StoreEvent<K, E, M>> get events => _events.stream;
-
-  /// Discard the optimistic overlay(s) for [correlationId] — the prediction
-  /// failed (timeout/reject). Base is untouched, so any superseding writes that
-  /// landed meanwhile survive. Keys whose effective value snapped back are
-  /// flagged [Stability.reverted] until the next fold touches them, so a
-  /// consumer can render the failure however it wants.
-  void rollback(String correlationId) {
-    final before = _eff;
-    _pending.removeWhere((p) => p.correlationId == correlationId);
-    var m = _base;
-    for (final p in _pending) {
-      m = _reg.reduce(m, p.msg);
-    }
-    for (final k in _diff(before, m)) {
-      _flags[k] = const Flags(stability: Stability.reverted);
-    }
-    _refresh(const {});
-  }
 
   // ── Merge edges (read resolvers) ──────────────────────────────────────
   // `user.merge(viewer, projection)`: per-key reads consult each edge's
@@ -642,12 +475,12 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   /// Store-source edges, kept for the collection union.
   final List<StoreMemory<K, Identifiable<K>, Msg>> _storeSources = [];
 
-  /// Own effective keys, then each store source's EXTRA keys in its order.
+  /// Own keys, then each store source's EXTRA keys in its order.
   Iterable<K> get _unionKeys sync* {
-    yield* _eff.keys;
+    yield* _base.keys;
     for (final src in _storeSources) {
       for (final k in src._unionKeys) {
-        if (!_eff.containsKey(k)) yield k;
+        if (!_base.containsKey(k)) yield k;
       }
     }
   }
@@ -662,67 +495,28 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
     return value;
   }
 
-  /// The EFFECTIVE keyed collection: base folded through the pending
-  /// optimistic overlays — unioned with any STORE sources' extra keys,
-  /// resolved through the edges. Unit projections stay out of iteration.
+  /// The keyed collection — the fold's truth unioned with any STORE
+  /// sources' extra keys, resolved through the edges. Unit projections stay
+  /// out of iteration.
   IdentifiableMap<K, E> get entities => _storeSources.isEmpty
-      ? _eff
-      : {for (final k in _unionKeys) k: _resolved(k, _eff[k]) as E};
+      ? _base
+      : {for (final k in _unionKeys) k: _resolved(k, _base[k]) as E};
 
-  /// The EFFECTIVE value at [key]: confirmed base folded through the pending
-  /// optimistic overlays, then through the merge edges — this is what canon
-  /// reads by nav id.
-  E? operator [](K key) => _resolved(key, _eff[key]);
+  /// The value at [key], resolved through the merge edges — this is what
+  /// canon reads by nav id.
+  E? operator [](K key) => _resolved(key, _base[key]);
 
   /// A keyed HANDLE — `store(id)`: a first-class, passable reference to one
   /// entity slot. `[]` answers "the value, now"; `call` constructs the
   /// reference (read it reactively via the UI layer's `ref.of(context)`).
   EntityRef<K, E, M> call(K id) => EntityRef._(this, id);
 
-  /// The CONFIRMED value at [key] — base only, ignoring overlays.
-  E? confirmed(K key) => _base[key];
-
-  /// True when an overlay currently changes [key]'s effective value from base.
-  bool _overlaid(K key) => !identical(_eff[key], _base[key]);
-
-  /// Flags at [key]: `pending` while an overlay changes it, else the
-  /// confirmed base flags.
-  Flags? flagsOf(K key) {
-    if (_overlaid(key)) {
-      return const Flags(stability: Stability.pending);
-    }
-    return _flags[key];
-  }
-
-  void _setStability(K key, Stability s) {
-    _flags[key] = Flags(stability: s);
-    _changes.add(key);
-  }
-
-  /// Mark a CONFIRMED entry stale (server invalidation, a related change, or a
-  /// disconnect). A no-op on an entry that isn't currently confirmed.
-  void invalidate(K key) {
-    if (_flags[key]?.stability == Stability.confirmed) {
-      _setStability(key, Stability.stale);
-    }
-  }
-
-  /// Invalidate every confirmed entry — what a [Bus] disconnect triggers.
-  void invalidateAll() {
-    for (final key in _flags.keys.toList()) {
-      invalidate(key);
-    }
-  }
-
-  /// All effective entries — base folded through the optimistic overlays,
-  /// unioned with store-source extras (see [entities]).
+  /// All entries, unioned with store-source extras (see [entities]).
   Iterable<E> get values => _storeSources.isEmpty
-      ? _eff.values
-      : [for (final k in _unionKeys) _resolved(k, _eff[k]) as E];
+      ? _base.values
+      : [for (final k in _unionKeys) _resolved(k, _base[k]) as E];
 
-  /// Keys whose EFFECTIVE value changed — base apply, overlay add, confirm, or
-  /// rollback. Surgical, per key. (Also fires on flag-only changes; use [consume]
-  /// for a value-distinct stream, [watchStatus] for a flag-distinct one.)
+  /// Keys whose value changed — surgical, per key.
   Stream<K> get changes => _changes.stream;
 
   /// Fires when the key SEQUENCE changed (add / remove / reorder) — the
@@ -730,95 +524,8 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   /// rebuilds exactly on membership/order, with no diffing downstream.
   Stream<void> get structure => _structure.stream;
 
-  final Map<K, int> _watchers = {}; // active consumers per key (Door 1 refcount)
-
-  void _retain(K key) => _watchers.update(key, (n) => n + 1, ifAbsent: () => 1);
-
-  void _release(K key) {
-    final n = (_watchers[key] ?? 1) - 1;
-    if (n <= 0) {
-      _watchers.remove(key);
-    } else {
-      _watchers[key] = n;
-    }
-  }
-
-  /// How many consumers are currently subscribed to [key] (Door 1 refcount).
-  int watchers(K key) => _watchers[key] ?? 0;
-
-  /// Door 1 GC: reclaim every CONFIRMED entry no consumer is watching and no
-  /// optimistic overlay needs. Call it on memory pressure or a cache-trim tick —
-  /// a later [surface] simply refetches anything dropped. Loading/pending and
-  /// still-watched entries are kept.
-  void gc() {
-    var changed = false;
-    for (final key in _base.keys.toList()) {
-      if (watchers(key) > 0) continue;
-      if (_overlaid(key)) continue; // an overlay still needs it
-      _base.remove(key);
-      _flags.remove(key);
-      changed = true;
-    }
-    if (changed) _refresh(const {});
-  }
-
-  /// Door 1: CONSUME [key] — the effective value now, then on every VALUE change
-  /// (flag-only flips emit nothing). While a consumer holds this subscription the
-  /// entry is RETAINED ([watchers] counts it); when the last one cancels it
-  /// becomes [gc]-eligible. Universal: wrap in any framework's stream primitive.
-  Stream<E?> consume(K key) {
-    late final StreamController<E?> ctrl;
-    StreamSubscription<K>? sub;
-    E? last;
-    ctrl = StreamController<E?>(
-      onListen: () {
-        _retain(key);
-        last = this[key];
-        ctrl.add(last);
-        sub = changes.listen((k) {
-          if (k != key) return;
-          final v = this[key];
-          if (!identical(v, last)) {
-            last = v;
-            ctrl.add(v);
-          }
-        });
-      },
-      onCancel: () {
-        sub?.cancel();
-        _release(key);
-      },
-    );
-    return ctrl.stream;
-  }
-
-  /// The `(key, #status)` aspect: the flags at [key] now, then on every FLAG
-  /// change — value-only changes that leave the flags equal emit nothing.
-  Stream<Flags?> watchStatus(K key) {
-    late final StreamController<Flags?> ctrl;
-    StreamSubscription<K>? sub;
-    Flags? last;
-    ctrl = StreamController<Flags?>(
-      onListen: () {
-        last = flagsOf(key);
-        ctrl.add(last);
-        sub = changes.listen((k) {
-          if (k != key) return;
-          final f = flagsOf(key);
-          if (f != last) {
-            last = f;
-            ctrl.add(f);
-          }
-        });
-      },
-      onCancel: () => sub?.cancel(),
-    );
-    return ctrl.stream;
-  }
-
   void dispose() {
     _sub.cancel();
-    _connSub.cancel();
     for (final s in _mergeSubs) {
       s.cancel();
     }

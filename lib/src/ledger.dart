@@ -22,12 +22,6 @@ class Ledger implements LedgerRows {
     // forwards into [_posted], which [on] taps.
     _tail = _segment(journal);
     _plumbTailToPosted();
-    _connSub = journal.connection.listen((v) {
-      for (final b in _segments) {
-        b.setConnected(v);
-      }
-      _posted.setConnected(v);
-    });
   }
 
   /// The complete, ungated record. Dispatch here; tap here for replay/debug.
@@ -45,29 +39,20 @@ class Ledger implements LedgerRows {
   /// A new segment fed by [source] (verbatim forward).
   Bus _segment(Bus source) {
     final seg = Bus();
-    _forwards.add(source.spine<Msg>().listen((r) {
-      final (msg, env) = r;
-      seg.dispatch(msg,
-          optimistic: env.optimistic, correlationId: env.correlationId);
-    }));
+    _forwards
+        .add(source.spine<Msg>().listen((r) => seg.dispatch(r.$1)));
     _segments.add(seg);
     return seg;
   }
 
   void _plumbTailToPosted() {
     _tailForward?.cancel();
-    _tailForward = _tail.spine<Msg>().listen((r) {
-      final (msg, env) = r;
-      _posted.dispatch(msg,
-          optimistic: env.optimistic, correlationId: env.correlationId);
-    });
+    _tailForward =
+        _tail.spine<Msg>().listen((r) => _posted.dispatch(r.$1));
   }
 
   final List<StreamSubscription<Object?>> _forwards = [];
-  final List<void Function(String)> _rollbacks = []; // per-store overlay rollback
   final List<void Function()> _disposers = []; // dispose the stores `close` owns
-  int _seq = 0; // monotonic correlation id source (no time/random dependency)
-  late final StreamSubscription<bool> _connSub;
 
   /// The declared form: a ledger CONSTRUCTED from its regent enum — [rows]
   /// must be the enum's full `values` list, so the citizen list is closed
@@ -126,8 +111,7 @@ class Ledger implements LedgerRows {
       // many = fan-out branches in set order. The journal keeps the original.
       final next = msg is M ? spec.judge(env, msg, read) : {msg};
       for (final m in next) {
-        seg.dispatch(m,
-            optimistic: env.optimistic, correlationId: env.correlationId);
+        seg.dispatch(m);
       }
     }));
     _segments.add(seg);
@@ -143,8 +127,7 @@ class Ledger implements LedgerRows {
     _forwards.add(source.spine<Msg>().listen((r) {
       final (msg, env) = r;
       if (msg is M && test(msg)) return;
-      seg.dispatch(msg,
-          optimistic: env.optimistic, correlationId: env.correlationId);
+      seg.dispatch(msg);
     }));
     _segments.add(seg);
     _tail = seg;
@@ -152,56 +135,18 @@ class Ledger implements LedgerRows {
   }
 
   /// Push a message onto the journal (it then posts through the guards).
-  void dispatch(Msg msg, {bool optimistic = false, String? correlationId}) =>
-      journal.dispatch(msg,
-          optimistic: optimistic, correlationId: correlationId);
+  void dispatch(Msg msg) => journal.dispatch(msg);
 
   /// The MANUAL-STORE door: subscribe to typed messages the ledger ADMITTED —
   /// the exact feed registered stores reduce — and wire your own reduce logic
   /// (a riverpod Notifier, a bloc) where [Store] is too simple. Side-effect
   /// subscribers (snackbars, sounds) belong here too: post-guard, so nothing
-  /// fires on a vetoed message.
-  ///
-  /// A manual store forgoes [StoreMemory]'s machinery — the envelope carries
-  /// `optimistic`/`correlationId`, but overlays and [rollback] are on you.
-  /// For the complete ungated record (replay/debug/transport), tap
-  /// `journal.on<M>` explicitly.
+  /// fires on a vetoed message. For the complete ungated record
+  /// (replay/debug/transport), tap `journal.on<M>` explicitly.
   Stream<M> on<M extends Msg>() => _posted.on<M>();
 
-  /// Like [on], with each message's [Envelope] (provenance/correlation).
+  /// Like [on], with each message's [Envelope].
   Stream<(M, Envelope)> envelopesOf<M extends Msg>() => _posted.envelopesOf<M>();
-
-  /// Discard the optimistic overlay(s) for [correlationId] across every store —
-  /// the prediction failed. Confirmed/superseding writes survive (base is clean).
-  void rollback(String correlationId) {
-    for (final r in _rollbacks) {
-      r(correlationId);
-    }
-  }
-
-  /// Issue an OPTIMISTIC command: dispatch [optimistic] as a prediction (instant
-  /// UI), run [effect] (the app's transport send), and reconcile. The TRANSPORT
-  /// is yours — `effect` performs the network call; if it resolves with the
-  /// server's confirming message that message is dispatched under the same
-  /// correlation id (promoting the overlay into base), and if it returns null the
-  /// promotion is left to an inbound push carrying that id. If `effect` throws,
-  /// the overlay is rolled back and the error rethrown. Returns the correlation id.
-  Future<String> command(Msg optimistic,
-      {required Future<Msg?> Function() effect}) async {
-    final cid = 'c${_seq++}';
-    dispatch(optimistic, optimistic: true, correlationId: cid);
-    try {
-      final confirmed = await effect();
-      if (confirmed != null) dispatch(confirmed, correlationId: cid);
-    } catch (_) {
-      rollback(cid);
-      rethrow;
-    }
-    return cid;
-  }
-
-  /// Report transport connection state (drives stability on every store).
-  void setConnected(bool value) => journal.setConnected(value);
 
   /// A live store for [spec], standing at the CURRENT row: it folds
   /// whatever survives the guards declared above it.
@@ -210,7 +155,6 @@ class Ledger implements LedgerRows {
       Store<K, E, M> spec) {
     final mem = StoreMemory<K, E, M>(spec, _tail);
     _enroll(spec, mem);
-    _rollbacks.add(mem.rollback);
     _disposers.add(mem.dispose);
     return mem;
   }
@@ -220,7 +164,6 @@ class Ledger implements LedgerRows {
   UnitMemory<S, M> unit<S, M extends Msg>(Unit<S, M> spec) {
     final mem = UnitMemory<S, M>(spec, _tail);
     _enroll(spec, mem);
-    _rollbacks.add(mem.rollback);
     _disposers.add(mem.dispose);
     return mem;
   }
@@ -233,7 +176,6 @@ class Ledger implements LedgerRows {
       f.cancel();
     }
     _tailForward?.cancel();
-    _connSub.cancel();
     journal.close();
     for (final b in _segments) {
       b.close();

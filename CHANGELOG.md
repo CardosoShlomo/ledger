@@ -1,3 +1,7 @@
+## 0.10.0
+
+- BREAKING: the memories hold NOTHING but their fold — deleted: `Flags`/`Stability`, the flags sidecar (`flagsOf`, `watchStatus`, `invalidate*`), optimistic overlays (`command`, `rollback`, `dispatch`'s `optimistic`/`correlationId`), Door-1 (`consume`, `gc`, `watchers`), `Bus.connection`/`setConnected`, and `Awaits` entirely. Every status is a consumer ROW (docks, in-flight units, coverage, a connection unit) — it replays, guards read it, laws state it.
+
 ## 0.9.0
 
 - BREAKING: `Guard.judge` returns `Set<Msg>` — the feed the rows below see: `{}` drop, `{msg}` pass, `{other}` rewrite, `{a, b, …}` fan-out branches in set order. `Veto` unchanged for consumers.

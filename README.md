@@ -40,20 +40,13 @@ a generated read-only `Stores` facade, and merge edges in the enum's static
 
 ## Optimism
 
-An optimistic dispatch lands as a pending OVERLAY — base state is never
-touched, so a rollback can't clobber a confirmed or superseding write.
-Settle it two ways:
-
-- **Correlation** (`ledger.command`): the transport's confirming message
-  promotes the overlay by id; a thrown effect rolls it back.
-- **A write dock** — rows, not machinery: a side store holds the pending
-  prediction as honest state (base has no arm for it), a merge edge applies
-  it at read, a guard settles it against echoes by STATE COMPARISON, and a
-  deadline EFFECT dispatches a timeout fact the guard judges like any other.
-  Everything replays, so confirm/revert/amend orders are statable as laws.
-
-Every entry carries `Flags` (`pending`, `confirmed`, `reverted`, `amended`,
-`stale`, `failed` + `tampered`), so the UI can tell a hope from a truth.
+Optimism is ROWS, never memory machinery — a store's memory holds nothing
+but its fold. The **write dock**: a side store holds the pending prediction
+as honest state (base has no arm for it), a merge edge applies it at read,
+a guard settles it against echoes by STATE COMPARISON, and a deadline
+EFFECT dispatches a timeout fact the guard judges like any other. Pending,
+settled, in-flight, covered — every status a UI could render is a row, so
+everything replays and confirm/revert/amend orders are statable as laws.
 
 ## Beyond the fold
 

@@ -38,31 +38,21 @@ final class _Counter extends Store<String, _CounterState, _CounterMsg> {
 }
 
 void main() {
-  test('dispatch folds via reduce; flags = confirmed/remote', () {
+  test('dispatch folds via reduce', () {
     final bus = Bus();
     final store = StoreMemory(const _Counter(), bus);
     bus.dispatch(_Inc('a', 5));
     expect(store['a']?.value, 5);
-    expect(store.flagsOf('a'),
-        const Flags(stability: Stability.confirmed));
     bus.dispatch(_Inc('a', 3));
     expect(store['a']?.value, 8);
   });
 
-  test('an overlaid key reads pending', () {
-    final bus = Bus();
-    final store = StoreMemory(const _Counter(), bus);
-    bus.dispatch(_Inc('a', 1), optimistic: true, correlationId: 'C1');
-    expect(store.flagsOf('a')?.stability, Stability.pending);
-  });
-
-  test('reduce -> null removes the entry and its flags', () {
+  test('reduce -> null removes the entry', () {
     final bus = Bus();
     final store = StoreMemory(const _Counter(), bus);
     bus.dispatch(_Inc('a', 5));
     bus.dispatch(_Reset('a'));
     expect(store['a'], isNull);
-    expect(store.flagsOf('a'), isNull);
   });
 
   test('changes stream emits the key per mutation', () async {

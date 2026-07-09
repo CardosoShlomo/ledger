@@ -76,20 +76,11 @@ void main() {
     expect(below['a']?.value, 5); // …and was dropped before this row
   });
 
-  test('a registered registry receives posted messages and stamps stability', () {
+  test('a registered registry receives posted messages', () {
     final ledger = Ledger();
     final counter = ledger.store(const _Counter());
     ledger.dispatch(_Inc('a', 3));
     expect(counter['a']?.value, 3);
-    expect(counter.flagsOf('a')?.stability, Stability.confirmed);
-  });
-
-  test('connection state flows through to the stores', () {
-    final ledger = Ledger();
-    final counter = ledger.store(const _Counter());
-    ledger.dispatch(_Inc('a', 1));
-    ledger.setConnected(false); // disconnect → confirmed entries go stale
-    expect(counter.flagsOf('a')?.stability, Stability.stale);
   });
 
   test('an effect dispatches AFTER the traversal (async delivery)', () async {

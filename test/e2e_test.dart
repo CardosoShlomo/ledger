@@ -1,4 +1,3 @@
-import 'dart:async';
 
 import 'package:regent/regent.dart';
 import 'package:test/test.dart';
@@ -71,12 +70,6 @@ abstract final class Data {
     return null;
   }
 
-  static Stream<Item?>? consumeItemOnDetail() {
-    for (final e in _graph.stack) {
-      if (e.screen == Screen.detail) return _items.consume(e.id as String);
-    }
-    return null;
-  }
 }
 
 void main() {
@@ -96,23 +89,12 @@ void main() {
     // data enters as a SOURCE msg (implements the sealed ItemMsg) → reduced in.
     ledger.dispatch(ItemLoaded('x', 'Widget'));
     expect(Data.itemOnDetail()?.name, 'Widget');
-    expect(Data._items.flagsOf('x')?.stability, Stability.confirmed);
 
-    // consume the live value reactively.
-    final seen = <String?>[];
-    final sub = Data.consumeItemOnDetail()!.listen((i) => seen.add(i?.name));
-    await Future<void>.delayed(Duration.zero);
-    expect(seen, ['Widget']);
-
-    // optimistic rename: instant overlay, then confirm via the effect's result.
-    await ledger.command(ItemRenamed('x', 'Renamed'),
-        effect: () async => ItemRenamed('x', 'Renamed'));
-    await Future<void>.delayed(Duration.zero);
+    // a rename folds like any fact — optimism is consumer rows, never
+    // memory machinery.
+    ledger.dispatch(ItemRenamed('x', 'Renamed'));
     expect(Data.itemOnDetail()?.name, 'Renamed');
-    expect(seen.first, 'Widget');
-    expect(seen.last, 'Renamed');
 
-    await sub.cancel();
     ledger.close();
   });
 }
