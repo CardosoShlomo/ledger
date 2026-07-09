@@ -14,8 +14,9 @@ import 'pure.dart';
 /// what survived the guards above them); guard rows are judges (stateless,
 /// fold nothing, decide what every row below sees: pass, drop, rewrite).
 /// Merge edges live in the enum's static `merges` set
-/// (`users.from(viewer, const ViewerSupportsUser())`) and may connect STORE
-/// rows only. Everything else (key node, key type, tree machinery, screen
+/// (`users.from(viewer, const ViewerSupportsUser())`) and connect reader
+/// rows: store targets take store or unit sources; a unit target takes a
+/// unit source. Everything else (key node, key type, tree machinery, screen
 /// associations) derives from the `@entities` graph via each store's entity
 /// type `E`.
 class Regents {
@@ -151,6 +152,21 @@ abstract base class Projection<S extends Identifiable<K>, K, E> {
 
   /// The answer at the source's own key — called only when the read matches.
   E resolve(E? row, S source);
+}
+
+/// The UNIT form of [Projection] — a unit-target merge edge
+/// (`viewer.from(viewerPending, const ApplyPending())` in the regents
+/// merges set): the SOURCE unit's state answers the TARGET unit's read.
+/// Keyless — a unit has cardinality one, so the edge always applies;
+/// [resolve] no-ops itself when the source carries nothing. Read-time only:
+/// the fold and guards' `read` never see it.
+@immutable
+abstract base class UnitProjection<S, T> {
+  const UnitProjection();
+
+  /// The effective value: the target's own [value] resolved through
+  /// [source].
+  T resolve(T value, S source);
 }
 
 /// The WRITE correlation twin — [Awaits]' sibling. Declared on a spec as two
@@ -516,8 +532,28 @@ class UnitMemory<S, M extends Msg> {
   late final StreamSubscription<Object?> _sub;
   late final StreamSubscription<void>? _awaitsSub;
 
-  /// The value, now.
-  S get value => _eff;
+  // ── Merge edges (read resolvers), unit form ───────────────────────────
+  final List<S Function(S)> _merges = [];
+  final List<StreamSubscription<void>> _mergeSubs = [];
+
+  /// Wire a merge edge: [source]'s value answers this unit's read through
+  /// [projection] — declaration order = resolution order. Read-time only:
+  /// [base] and the fold never see it.
+  void merge<S2, M2 extends Msg>(
+      UnitMemory<S2, M2> source, UnitProjection<S2, S> projection) {
+    _merges.add((v) => projection.resolve(v, source.value));
+    _mergeSubs.add(source.changes.listen((_) => _changes.add(null)));
+  }
+
+  /// The value, now — base folded through pending overlays, then resolved
+  /// through the merge edges.
+  S get value {
+    var v = _eff;
+    for (final m in _merges) {
+      v = m(v);
+    }
+    return v;
+  }
 
   /// True while a request fact awaits its answer (any non-request family
   /// fact clears it).
@@ -549,6 +585,9 @@ class UnitMemory<S, M extends Msg> {
     _deadline?.cancel();
     _sub.cancel();
     _awaitsSub?.cancel();
+    for (final s in _mergeSubs) {
+      s.cancel();
+    }
     _changes.close();
     _events.close();
   }
