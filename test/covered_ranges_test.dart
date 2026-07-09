@@ -84,4 +84,18 @@ void main() {
     expect(c.contains(25), isFalse);
     expect(c.contains(40), isTrue);
   });
+
+  test('retraction opens its boundary: the retracted cursors are OUT', () {
+    final c = none.mark(0, 100).retract(20, 30);
+    expect(c.contains(20), isFalse);
+    expect(c.contains(30), isFalse);
+    expect(c.contains(19), isTrue);
+    expect(c.contains(31), isTrue);
+  });
+
+  test('a later mark closes a retraction-opened edge', () {
+    final c = none.mark(0, 100).retract(20, 30).mark(25, 30);
+    expect(c.contains(30), isTrue);
+    expect(c.contains(20), isFalse);
+  });
 }
