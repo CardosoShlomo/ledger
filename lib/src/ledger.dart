@@ -120,10 +120,13 @@ class Ledger implements LedgerRows {
     final seg = Bus();
     _forwards.add(source.spine<Msg>().listen((r) {
       final (msg, env) = r;
-      final next = msg is M ? spec.judge(env, msg, read) : msg;
-      if (next == null) return; // dropped — journal keeps it, rows below don't
-      seg.dispatch(next,
-          optimistic: env.optimistic, correlationId: env.correlationId);
+      // The returned set IS the feed below: empty = drop, one = pass/rewrite,
+      // many = fan-out branches in set order. The journal keeps the original.
+      final next = msg is M ? spec.judge(env, msg, read) : {msg};
+      for (final m in next) {
+        seg.dispatch(m,
+            optimistic: env.optimistic, correlationId: env.correlationId);
+      }
     }));
     _segments.add(seg);
     _tail = seg;

@@ -30,6 +30,7 @@ final class _Prices extends Store<String, _Price, _PriceMsg> {
       switch (msg) {
         _PriceSet(:final id, :final value) =>
           entities.upsert(_Price(id, value)),
+        _BulkSet() => entities, // heard, unfolded — the guard unbulks it below
       };
 }
 
@@ -46,11 +47,11 @@ final class _FloorGuard extends Guard<_PriceSet> {
   const _FloorGuard();
 
   @override
-  Msg? judge(Envelope env, _PriceSet msg, ReadStore read) {
+  Set<Msg> judge(Envelope env, _PriceSet msg, ReadStore read) {
     final floor = read(const _Floor(10));
-    if (msg.value < 0) return null;
-    if (msg.value < floor) return _PriceSet(msg.id, floor);
-    return msg;
+    if (msg.value < 0) return const {};
+    if (msg.value < floor) return {_PriceSet(msg.id, floor)};
+    return {msg};
   }
 }
 
@@ -59,6 +60,20 @@ final class _NegativeVeto extends Veto<_PriceSet> {
 
   @override
   bool block(Envelope env, _PriceSet msg, ReadStore read) => msg.value < 0;
+}
+
+/// FANS OUT: a bulk fact becomes one fact per item for the rows below.
+class _BulkSet extends _PriceMsg {
+  const _BulkSet(this.entries);
+  final List<(String, double)> entries;
+}
+
+final class _Unbulk extends Guard<_BulkSet> {
+  const _Unbulk();
+
+  @override
+  Set<Msg> judge(Envelope env, _BulkSet msg, ReadStore read) =>
+      {for (final (id, value) in msg.entries) _PriceSet(id, value)};
 }
 
 void main() {
@@ -102,5 +117,24 @@ void main() {
 
     expect(prices['a'], isNull);
     expect(prices['b']?.value, 5);
+  });
+
+  test('a guard FANS OUT: each returned msg walks the rows below, in order',
+      () async {
+    final ledger = Ledger();
+    final above = ledger.store(const _Prices()); // sees only the bulk fact
+    ledger.guard(const _Unbulk());
+    final below = ledger.store(const _Prices(1)); // sees the branches
+    final seen = <String>[];
+    ledger.on<_PriceSet>().listen((m) => seen.add(m.id));
+
+    ledger.dispatch(const _BulkSet([('a', 1), ('b', 2), ('c', 3)]));
+    await Future<void>.delayed(Duration.zero);
+
+    expect(above.entities, isEmpty); // the bulk fact folds nothing above
+    expect(below['a']?.value, 1);
+    expect(below['b']?.value, 2);
+    expect(below['c']?.value, 3);
+    expect(seen, ['a', 'b', 'c']); // branch order = set order
   });
 }

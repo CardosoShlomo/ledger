@@ -1,3 +1,7 @@
+## 0.9.0
+
+- BREAKING: `Guard.judge` returns `Set<Msg>` — the feed the rows below see: `{}` drop, `{msg}` pass, `{other}` rewrite, `{a, b, …}` fan-out branches in set order. `Veto` unchanged for consumers.
+
 ## 0.8.0
 
 - BREAKING: guards judge through `read` — `Guard<M, S>` → `Guard<M>`, `judge(env, msg, ReadStore read)`; `read(const X())` is the ledger's own state by citizen identity (`AnyStore<S>` carries the type). No stores facade; `Ledger.guard(spec)` takes no facade arg; two rows may not hold identical instances.
