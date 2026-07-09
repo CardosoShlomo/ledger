@@ -34,9 +34,10 @@ goes through stores; a rejection that needs UI is a fact a store folds,
 never a guard tap.
 
 With canon's generator, the queue is DECLARED: a `@regents` enum lists every
-citizen in traversal order, guards as `Guard`/`Veto` classes judging through
-a generated read-only `Stores` facade, and merge edges in the enum's static
-`merges` set (`products.from(localProducts, const LocalProductSupports())`).
+citizen in traversal order, guards as `Guard`/`Veto` classes reading the
+ledger's own state by citizen identity (`read(const Products())` — checked
+at build time), and merge edges in the enum's static `merges` set
+(`products.from(localProducts, const LocalProductSupports())`).
 
 ## Optimism
 
@@ -54,11 +55,11 @@ everything replays and confirm/revert/amend orders are statable as laws.
   message (`msg`, `before`, `after`, changed keys): effects observe cause
   and consequence atomically, so they can never race the fold. Sugar:
   `transitions()`, `entering(state)`, `on<M>()`.
-- **Awaits** — a store's correlation twin names its REQUEST family and
-  answers scope entry via `surface(key, row)`: the ask to dispatch, or null
-  when the row's knowledge suffices. In-flight status is an honest ROW —
-  a consumer unit folds request facts in and answering facts out; a guard
-  reading it drops duplicate asks. No machinery, no sidecar.
+- **In-flight as a row** — a request fact folds its key in, the answering
+  facts (success or failure) fold it out; presence = loading, read with the
+  same surface as any state. A guard reading it drops duplicate asks; a
+  scope-entry FACT judged by a gate replaces every fetch-on-entry bridge.
+  No machinery, no sidecar.
 - **Merges** — read-time edges, never copied state: a unit's state answers a
   keyed surface at its own `Identifiable` id (`merge`), or a whole store
   lends its rows to another's reads through a projection (`mergeStore`) —
