@@ -54,21 +54,21 @@ class Ledger implements LedgerRows {
   final List<void Function()> _disposers = []; // dispose the stores `close` owns
 
   /// The declared form: a ledger CONSTRUCTED from its regent enum — [rows]
-  /// must be the enum's full `values` list, so the citizen list is closed
+  /// must be the enum's full `values` list, so the regent list is closed
   /// and row order IS queue order. Guard rows judge through [read] — this
   /// ledger's own state, no facade. Memories are read back per row, and
   /// [SpecLedger.on] reads the feed at any declared position.
   static SpecLedger<R> of<R extends RegentNode<R>>(List<R> rows) =>
       SpecLedger._(rows);
 
-  // ── Citizen-identity state lookup (guards judge through it) ──
+  // ── Regent-identity state lookup (guards judge through it) ──
 
   // Memories keyed by their spec INSTANCE. Const canonicalization makes the
-  // constructor expression the citizen's name; registration rejects a
+  // constructor expression the regent's name; registration rejects a
   // duplicate identical instance, so the lookup is total and unambiguous.
   final Map<Object, Object> _specMemories = Map.identity();
 
-  /// This ledger's own CONFIRMED state by citizen identity — what every
+  /// This ledger's own CONFIRMED state by regent identity — what every
   /// guard row judges through: `read(const BrowseDeck())` is the deck's
   /// keyed collection, `read(const AuthMachine())` the unit's value. Base
   /// truth only — no optimistic overlays, no merge edges — so a judge never
@@ -90,7 +90,7 @@ class Ledger implements LedgerRows {
     if (_specMemories.containsKey(spec)) {
       throw StateError(
           'two rows hold the identical ${spec.runtimeType} instance — const '
-          'canonicalization makes them one citizen. Differ the args or '
+          'canonicalization makes them one regent. Differ the args or '
           'subclass to declare two.');
     }
     _specMemories[spec] = memory;
@@ -227,11 +227,11 @@ class Ledger implements LedgerRows {
   }
 }
 
-/// A ledger built from its DECLARED regent enum ([Ledger.of]): the citizen
+/// A ledger built from its DECLARED regent enum ([Ledger.of]): the regent
 /// list is closed, row order is queue order, and every gap between rows is a
 /// named observation point. `on<M>()` keeps the base meaning (past the last
 /// row — fully admitted); `on<M>(before: row)` reads the feed exactly as it
-/// reaches that citizen, so `before: rows.first` is the raw ingress and
+/// reaches that regent, so `before: rows.first` is the raw ingress and
 /// `before: someStore` is what that store folds.
 final class SpecLedger<R extends RegentNode<R>> extends Ledger {
   SpecLedger._(this.rows) {
@@ -248,7 +248,7 @@ final class SpecLedger<R extends RegentNode<R>> extends Ledger {
     }
   }
 
-  /// The declared citizen list — the enum's `values`, verbatim.
+  /// The declared regent list — the enum's `values`, verbatim.
   final List<R> rows;
 
   final Map<R, Bus> _sources = {};

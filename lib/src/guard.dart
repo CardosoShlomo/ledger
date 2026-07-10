@@ -53,7 +53,7 @@ final class MintJudgment implements Judgment {
 /// state) — never of why the cursor arrived, what round this is, or what
 /// minted what. Stores transform state and nothing else; guards enqueue
 /// cursors (at 0 or x+1) and nothing else. The world is readable only
-/// through [read] — the OWN ledger's state, by citizen identity — so a
+/// through [read] — the OWN ledger's state, by regent identity — so a
 /// guard is replayable by construction and table-testable with
 /// (state, msg) pairs alone: judgments are VALUES.
 abstract base class Guard<M extends Msg> extends Regent {

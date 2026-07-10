@@ -4,7 +4,7 @@ import 'ledger.dart';
 import 'msg.dart';
 import 'store.dart';
 
-/// A snapshot of every citizen's state after a replay — keyed by regent row.
+/// A snapshot of every regent's state after a replay — keyed by regent row.
 /// Store rows map to a plain `Map` of their entities, unit rows to their
 /// value, guard rows to null. Plain collections so `equals` / `isNot` compare
 /// structurally.
@@ -12,7 +12,7 @@ typedef LedgerState<R> = Map<R, Object?>;
 
 /// The state the WHOLE ledger folds from [order] — its *replay*. Builds a pure
 /// ledger from the declared regent list ([rows] must be the enum's `values`),
-/// folds the messages synchronously, and returns a snapshot of every citizen's
+/// folds the messages synchronously, and returns a snapshot of every regent's
 /// state. Deterministic: the folds are pure, so the same messages always yield
 /// the same snapshot — replay is the operation purity buys you.
 ///

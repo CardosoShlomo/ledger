@@ -6,7 +6,7 @@ import 'package:meta/meta.dart';
 import 'msg.dart';
 import 'pure.dart';
 
-/// Marks the CITIZENS enum canon's generator reads: each row holds a
+/// Marks the REGENTS enum canon's generator reads: each row holds a
 /// [Regent] — a store, a unit, a guard, or a veto — and ROW ORDER IS
 /// TRAVERSAL ORDER. The rows share one order but act OPPOSITELY: store rows
 /// are readers (they fold what passes, never touching it — what they see is
@@ -52,21 +52,21 @@ class RegentMerge<Self extends RegentNode<Self>> {
 }
 
 /// What a `@stores` row may hold: a keyed [Store] or a [Unit]. [S] is the
-/// state a `read` of the citizen returns — the keyed collection for a store,
+/// state a `read` of the regent returns — the keyed collection for a store,
 /// the value for a unit — so one typed lookup serves both kinds.
 abstract interface class AnyStore<S> {}
 
 /// A guard's view of the world: this ledger's own state, looked up by
-/// citizen IDENTITY — `read(const BrowseDeck())`, `read(const AuthMachine())`.
-/// Const canonicalization makes the constructor expression the citizen's
+/// regent IDENTITY — `read(const BrowseDeck())`, `read(const AuthMachine())`.
+/// Const canonicalization makes the constructor expression the regent's
 /// canonical NAME: `const X()` written in a judge IS the instance the row
-/// holds (same class, different args = a different citizen; two rows may not
+/// holds (same class, different args = a different regent; two rows may not
 /// hold identical instances — enforced at registration). Bound to the ledger
 /// the guard stands in, so a replayed ledger reads itself. Throws when no
 /// row holds the instance (wrong args, or a missing `const`).
 typedef ReadStore = S Function<S>(AnyStore<S> spec);
 
-/// A CITIZEN of the ledger — anything that occupies a row of the regents
+/// A REGENT — a row of the ledger — anything that occupies a row of the regents
 /// enum: stores, units, guards, vetoes. Row order is traversal order: a
 /// message walks the rows top to bottom.
 ///
@@ -85,7 +85,7 @@ typedef ReadStore = S Function<S>(AnyStore<S> spec);
 abstract base class Regent {
   const Regent();
 
-  /// Registers this citizen at the ledger's current row with its OWN type
+  /// Registers this regent at the ledger's current row with its OWN type
   /// arguments intact (double dispatch — a type-erased switch would fold
   /// every message into every store). Returns the live memory (stores,
   /// units) or null (guards). [Ledger.of] drives it; consumers register via
@@ -95,7 +95,7 @@ abstract base class Regent {
 }
 
 /// The registration face [Regent.mount] dispatches into — [Ledger]
-/// implements it; the indirection keeps the citizen tiers free of the
+/// implements it; the indirection keeps the regent tiers free of the
 /// ledger's own import.
 abstract interface class LedgerRows {
   StoreMemory<K, E, M> store<K, E extends Identifiable<K>, M extends Msg>(

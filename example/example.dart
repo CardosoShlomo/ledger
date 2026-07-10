@@ -195,7 +195,7 @@ final class DedupeLoad extends Guard<LoadCatalog> {
 /// The CACHE gate: a cached product inside a COVERED window is a corpse —
 /// the authority already ruled there; strip it before any row folds it.
 /// (Without this row the replay law below prints false: the ledger's laws
-/// catch a missing citizen the moment you state them.)
+/// catch a missing regent the moment you state them.)
 final class StripCachedCatalog extends Guard<CachedCatalog> {
   const StripCachedCatalog();
   @override
@@ -239,7 +239,7 @@ final class RuleCatalogPage extends Guard<CatalogPage> {
   }
 }
 
-// ── 3. The CITIZENS enum: row order IS the queue. Gates stand above what
+// ── 3. The REGENTS enum: row order IS the queue. Gates stand above what
 // they protect; the dock and its unit close the file. ──
 enum Rows with RegentNode<Rows> {
   dedupeLoad(DedupeLoad()),

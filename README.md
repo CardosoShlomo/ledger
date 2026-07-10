@@ -1,13 +1,13 @@
 # regent
 
 Optimistic, message-driven state engine: a journal of sealed facts folded
-into keyed stores and units, traversed by one ordered queue of citizens.
+into keyed stores and units, traversed by one ordered queue of regents.
 Pure Dart.
 
-## The queue of citizens
+## The queue of regents
 
 Dispatch a `Msg`; it enters the journal (the complete, ungated record) and
-walks the QUEUE — an ordered list of citizens, each a `Regent`:
+walks the QUEUE — an ordered list of REGENTS:
 
 - A **store** row is a pure READER standing at its place: it folds what
   passes (`Store.reduce` over a keyed collection, `Unit.reduce` over one
@@ -39,8 +39,8 @@ goes through stores; a rejection that needs UI is a fact a store folds,
 never a guard tap.
 
 With canon's generator, the queue is DECLARED: a `@regents` enum lists every
-citizen in traversal order, guards as `Guard`/`Veto` classes reading the
-ledger's own state by citizen identity (`read(const Products())` — checked
+regent in traversal order, guards as `Guard`/`Veto` classes reading the
+ledger's own state by regent identity (`read(const Products())` — checked
 at build time), and merge edges in the enum's static `merges` set
 (`products.from(localProducts, const LocalProductSupports())`).
 
@@ -92,12 +92,12 @@ prevents the rest. These are the rules the engine can't enforce for you:
 - **Guards are pure.** A guard reads the world only through `read` — never
   dispatches, never touches the world. Placement is semantics: declare
   guards above the rows they protect.
-- **The locality axiom.** Every citizen invocation is a pure function of
+- **The locality axiom.** Every regent invocation is a pure function of
   (current state, message) — never of why the cursor arrived, what round it
   is, or what minted what. STORES TRANSFORM STATE AND NOTHING ELSE; GUARDS
   ENQUEUE CURSORS (at 0 or x+1) AND NOTHING ELSE. History reaches the
   future only through state, so replay totality is a theorem, provenance is
-  invisible (if causation matters, it goes ON the fact), and every citizen
+  invisible (if causation matters, it goes ON the fact), and every regent
   is table-testable with (state, msg) pairs — judgments are values.
 - **Mints derive, never sequence.** A legitimate mint is a fact the fold
   already implies, restatable as a law about state ("whenever X folds, Y
