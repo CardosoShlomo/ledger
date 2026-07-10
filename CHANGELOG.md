@@ -3,6 +3,7 @@
 - BREAKING: guards are LAUNCHERS — `judge` returns `Set<Judgment>`: `.forward(msg)` continues this round below (pass/drop/rewrite/fan-out as before), `.mint(msg)` derives a new fact as its own round from index 0 (unjournaled — re-derived on replay; sibling mints must commute; depth-budgeted).
 - BREAKING: `Envelope` deleted — `judge(msg, read)` / `block(msg, read)`; the journal carries bare facts (causation goes ON the fact, never beside it).
 - The locality axiom documented: stores transform state and nothing else; guards enqueue cursors and nothing else; every invocation reads only (current state, message).
+- The SHADOW LAW: no row reduces the unsealed root `Msg` — cross-family rows (shadows, docks, in-flight units) declare a sealed GROUP their facts `implements`; even a shadow's delegation arm is typed.
 
 ## 0.10.0
 
