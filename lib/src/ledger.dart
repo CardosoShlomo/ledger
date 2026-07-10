@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:identifiable/identifiable.dart';
 
-import 'envelope.dart';
 import 'guard.dart';
 import 'msg.dart';
 import 'store.dart';
@@ -40,7 +39,7 @@ class Ledger implements LedgerRows {
   Bus _segment(Bus source) {
     final seg = Bus();
     _forwards
-        .add(source.spine<Msg>().listen((r) => seg.dispatch(r.$1)));
+        .add(source.spine<Msg>().listen(seg.dispatch));
     _segments.add(seg);
     return seg;
   }
@@ -48,7 +47,7 @@ class Ledger implements LedgerRows {
   void _plumbTailToPosted() {
     _tailForward?.cancel();
     _tailForward =
-        _tail.spine<Msg>().listen((r) => _posted.dispatch(r.$1));
+        _tail.spine<Msg>().listen(_posted.dispatch);
   }
 
   final List<StreamSubscription<Object?>> _forwards = [];
@@ -105,13 +104,22 @@ class Ledger implements LedgerRows {
   void guard<M extends Msg>(covariant Guard<M> spec) {
     final source = _tail;
     final seg = Bus();
-    _forwards.add(source.spine<Msg>().listen((r) {
-      final (msg, env) = r;
-      // The returned set IS the feed below: empty = drop, one = pass/rewrite,
-      // many = fan-out branches in set order. The journal keeps the original.
-      final next = msg is M ? spec.judge(env, msg, read) : {msg};
-      for (final m in next) {
-        seg.dispatch(m);
+    _forwards.add(source.spine<Msg>().listen((msg) {
+      if (msg is! M) {
+        seg.dispatch(msg);
+        return;
+      }
+      // The verdict: forwards continue THIS round below (empty = drop, one =
+      // pass/rewrite, many = fan-out, in set order); mints queue as NEW
+      // rounds from index 0 after this round completes. The journal keeps
+      // only the original.
+      for (final j in spec.judge(msg, read)) {
+        switch (j) {
+          case ForwardJudgment(:final msg):
+            seg.dispatch(msg);
+          case MintJudgment(:final msg):
+            _mints.add((msg, _depth + 1));
+        }
       }
     }));
     _segments.add(seg);
@@ -124,8 +132,7 @@ class Ledger implements LedgerRows {
   void veto<M extends Msg>(bool Function(M msg) test) {
     final source = _tail;
     final seg = Bus();
-    _forwards.add(source.spine<Msg>().listen((r) {
-      final (msg, env) = r;
+    _forwards.add(source.spine<Msg>().listen((msg) {
       if (msg is M && test(msg)) return;
       seg.dispatch(msg);
     }));
@@ -134,8 +141,47 @@ class Ledger implements LedgerRows {
     _plumbTailToPosted();
   }
 
-  /// Push a message onto the journal (it then posts through the guards).
-  void dispatch(Msg msg) => journal.dispatch(msg);
+  // ── Minted rounds: derived facts re-entering at index 0 ────────────────
+  // Collected during a round (guards may not dispatch mid-traversal), run
+  // FIFO after the round completes — before anything external can
+  // interleave. Unjournaled: a mint is a pure derivation of the fold, so
+  // replay re-derives it from the source fact.
+  final List<(Msg, int)> _mints = [];
+  int _depth = 0;
+  bool _draining = false;
+
+  /// A mint chain deeper than this is sequencing wearing a derivation's
+  /// clothes — a design diagnosis, thrown at development time.
+  static const mintDepthBudget = 8;
+
+  void _drainMints() {
+    if (_draining) return; // the outermost frame owns the drain
+    _draining = true;
+    try {
+      while (_mints.isNotEmpty) {
+        final (msg, depth) = _mints.removeAt(0);
+        if (depth > mintDepthBudget) {
+          throw StateError(
+              'mint chain exceeded depth $mintDepthBudget ($msg) — a mint is '
+              'a DERIVATION the fold already implies, never a sequence step; '
+              'sequencing over time belongs to effects.');
+        }
+        _depth = depth;
+        // Index 0 = the first segment: the full queue, skipping the journal.
+        _segments.first.dispatch(msg);
+      }
+    } finally {
+      _depth = 0;
+      _draining = false;
+    }
+  }
+
+  /// Push a message onto the journal (it then posts through the guards);
+  /// minted rounds run after it, before anything else can interleave.
+  void dispatch(Msg msg) {
+    journal.dispatch(msg);
+    _drainMints();
+  }
 
   /// The MANUAL-STORE door: subscribe to typed messages the ledger ADMITTED —
   /// the exact feed registered stores reduce — and wire your own reduce logic
@@ -144,9 +190,6 @@ class Ledger implements LedgerRows {
   /// fires on a vetoed message. For the complete ungated record
   /// (replay/debug/transport), tap `journal.on<M>` explicitly.
   Stream<M> on<M extends Msg>() => _posted.on<M>();
-
-  /// Like [on], with each message's [Envelope].
-  Stream<(M, Envelope)> envelopesOf<M extends Msg>() => _posted.envelopesOf<M>();
 
   /// A live store for [spec], standing at the CURRENT row: it folds
   /// whatever survives the guards declared above it.

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:identifiable/identifiable.dart';
 import 'package:meta/meta.dart';
 
-import 'envelope.dart';
 import 'msg.dart';
 import 'pure.dart';
 
@@ -106,7 +105,6 @@ abstract interface class LedgerRows {
 }
 
 
-/// A PURE interceptor in the dispatch pipeline: inspect/transform an envelope,
 /// One fold's full story, emitted by a store AFTER the reduce ran: the cause
 /// and its consequence, atomically — an effect filtering these can never race
 /// the fold. Filters recover every narrower feed: `structural` (the list
@@ -116,7 +114,6 @@ abstract interface class LedgerRows {
 final class StoreEvent<K, E extends Identifiable<K>, M extends Msg> {
   const StoreEvent({
     required this.msg,
-    required this.env,
     required this.before,
     required this.after,
     required this.changed,
@@ -124,7 +121,6 @@ final class StoreEvent<K, E extends Identifiable<K>, M extends Msg> {
   });
 
   final M msg;
-  final Envelope env;
   final IdentifiableMap<K, E> before;
   final IdentifiableMap<K, E> after;
   final Set<K> changed;
@@ -179,7 +175,7 @@ final class UnitEvent<S, M extends Msg> {
   final S after;
 }
 
-/// The message bus — the RICH tier's transport. Dispatch envelopes through
+/// The message bus — the RICH tier's transport. Dispatch messages through
 /// guards to typed subscribers. Transport-agnostic: feed it from WS, HTTP, a
 /// local DB, or a local optimistic `dispatch(..., optimistic: true)`.
 /// Decoupled from canon and from Flutter; a [StoreMemory] subscribes to it,
@@ -187,12 +183,12 @@ final class UnitEvent<S, M extends Msg> {
 class Bus {
   // The SPINE: synchronous delivery that runs the traversal (folds). Internal —
   // memories subscribe here so state is settled when dispatch returns.
-  final StreamController<Envelope> _spine =
-      StreamController<Envelope>.broadcast(sync: true);
+  final StreamController<Msg> _spine =
+      StreamController<Msg>.broadcast(sync: true);
   // The TAPS: async delivery for all observation (effects, [on]). The event
   // loop is the deferral queue — listeners run after the traversal, each
   // seeing a consistent cut; their dispatches enter like any other.
-  final StreamController<Envelope> _taps = StreamController<Envelope>.broadcast();
+  final StreamController<Msg> _taps = StreamController<Msg>.broadcast();
   bool _firing = false;
 
   /// Push a message through the bus.
@@ -202,14 +198,13 @@ class Bus {
     // live in the LEDGER's queue, between segments — a bus is one segment.
     assert(!_firing,
         'dispatch during a traversal — guards and reduces must be pure');
-    final env = Envelope(msg);
     _firing = true;
     try {
-      _spine.add(env);
+      _spine.add(msg);
     } finally {
       _firing = false;
     }
-    _taps.add(env);
+    _taps.add(msg);
   }
 
   /// The [M]-typed feed as a STREAM — composable (`where`/`asyncMap`), and
@@ -217,19 +212,13 @@ class Bus {
   /// (pause the subscription, the feed waits). `.listen(handler)` for the
   /// callback style.
   Stream<M> on<M extends Msg>() =>
-      _taps.stream.where((e) => e.msg is M).map((e) => e.msg as M);
-
-  /// Like [on], but paired with each message's [Envelope] — for the rare
-  /// effect that needs provenance/correlation.
-  Stream<(M, Envelope)> envelopesOf<M extends Msg>() => _taps.stream
-      .where((e) => e.msg is M)
-      .map((e) => (e.msg as M, e));
+      _taps.stream.where((m) => m is M).cast<M>();
 
   /// The synchronous spine — memories fold on it so state is settled when
-  /// dispatch returns. Observation belongs on [on]/[envelopesOf].
+  /// dispatch returns. Observation belongs on [on].
   @internal
-  Stream<(M, Envelope)> spine<M extends Msg>() =>
-      _spine.stream.where((e) => e.msg is M).map((e) => (e.msg as M, e));
+  Stream<M> spine<M extends Msg>() =>
+      _spine.stream.where((m) => m is M).cast<M>();
 
   void close() {
     _spine.close();
@@ -283,7 +272,7 @@ abstract base class Unit<S, M extends Msg> extends Regent
 /// The live memory for a [Unit]: the value driven off a [Bus].
 class UnitMemory<S, M extends Msg> {
   UnitMemory(this._spec, Bus bus) : _base = _spec.initial {
-    _sub = bus.spine<M>().listen((r) => _apply(r.$1, r.$2));
+    _sub = bus.spine<M>().listen(_apply);
   }
 
   final Unit<S, M> _spec;
@@ -292,7 +281,7 @@ class UnitMemory<S, M extends Msg> {
   /// The folded value — what a guard's `read` returns.
   S get base => _base;
 
-  void _apply(M msg, Envelope env) {
+  void _apply(M msg) {
     final before = _base;
     _base = _spec.reduce(_base, msg);
     if (!identical(_base, before)) _changes.add(null);
@@ -358,7 +347,7 @@ class _MergeEdge<K, E> {
 /// consumer ROWS (docks, in-flight units, coverage), where they replay.
 class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   StoreMemory(this._reg, Bus bus) {
-    _sub = bus.spine<M>().listen((r) => _apply(r.$1, r.$2));
+    _sub = bus.spine<M>().listen(_apply);
   }
 
   final Store<K, E, M> _reg;
@@ -388,7 +377,7 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
     return true;
   }
 
-  void _apply(M msg, Envelope env) {
+  void _apply(M msg) {
     final before = _base;
     _base = _reg.reduce(before, msg);
     // Change signals decided ONCE here, where both maps are in hand, so no
@@ -403,7 +392,6 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
     // a msg-type filter is a complete post-fold observation of the family.
     _events.add(StoreEvent(
       msg: msg,
-      env: env,
       before: before,
       after: _base,
       changed: touched,

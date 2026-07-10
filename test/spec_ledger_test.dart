@@ -52,7 +52,7 @@ final class _NoEmptyShouts extends Veto<_Shout> {
   const _NoEmptyShouts();
 
   @override
-  bool block(Envelope env, _Shout msg, ReadStore read) => msg.text.isEmpty;
+  bool block(_Shout msg, ReadStore read) => msg.text.isEmpty;
 }
 
 enum _Rows with RegentNode<_Rows> {

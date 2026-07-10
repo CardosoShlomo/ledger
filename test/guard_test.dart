@@ -47,11 +47,11 @@ final class _FloorGuard extends Guard<_PriceSet> {
   const _FloorGuard();
 
   @override
-  Set<Msg> judge(Envelope env, _PriceSet msg, ReadStore read) {
+  Set<Judgment> judge(_PriceSet msg, ReadStore read) {
     final floor = read(const _Floor(10));
     if (msg.value < 0) return const {};
-    if (msg.value < floor) return {_PriceSet(msg.id, floor)};
-    return {msg};
+    if (msg.value < floor) return {.forward(_PriceSet(msg.id, floor))};
+    return {.forward(msg)};
   }
 }
 
@@ -59,7 +59,7 @@ final class _NegativeVeto extends Veto<_PriceSet> {
   const _NegativeVeto();
 
   @override
-  bool block(Envelope env, _PriceSet msg, ReadStore read) => msg.value < 0;
+  bool block(_PriceSet msg, ReadStore read) => msg.value < 0;
 }
 
 /// FANS OUT: a bulk fact becomes one fact per item for the rows below.
@@ -72,8 +72,8 @@ final class _Unbulk extends Guard<_BulkSet> {
   const _Unbulk();
 
   @override
-  Set<Msg> judge(Envelope env, _BulkSet msg, ReadStore read) =>
-      {for (final (id, value) in msg.entries) _PriceSet(id, value)};
+  Set<Judgment> judge(_BulkSet msg, ReadStore read) =>
+      {for (final (id, value) in msg.entries) .forward(_PriceSet(id, value))};
 }
 
 void main() {

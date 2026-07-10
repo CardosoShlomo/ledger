@@ -14,8 +14,13 @@ walks the QUEUE — an ordered list of citizens, each a `Regent`:
   value) and can never touch the message. What it sees is whatever survived
   the guards above its row.
 - A **guard** row is a pure JUDGE of the flow: it folds nothing and holds no
-  state, but decides what every row below it sees — pass, drop, or rewrite
-  (`Guard.judge`). A `Veto` is the boolean specialization (pass or drop).
+  state. Its verdict is a set of LAUNCHES targeting the only two indices
+  that preserve the theorem *no row ever sees a message that skipped a
+  guard above it*: `.forward(msg)` continues THIS round below (pass, drop
+  via `{}`, rewrite, fan out); `.mint(msg)` DERIVES a new fact as its own
+  round from index 0, after this round completes — re-judged by every
+  guard, never journaled (it re-derives on replay), required to commute
+  with its siblings. A `Veto` is the boolean specialization (pass or drop).
 
 One order, two opposite relationships to it: moving a store changes what IT
 sees; moving a guard changes what EVERYONE below it sees. The journal always
@@ -81,9 +86,20 @@ prevents the rest. These are the rules the engine can't enforce for you:
   `CartMsg`) is exactly what one store reduces — `sealed`, so the reduce is
   exhaustively matched and a new variant is a compile error until every
   store answers it. (A SHADOW store may reduce the root `Msg` and delegate.)
-- **Guards are pure.** A guard reads the world only through its stores
-  facade — never dispatches, never touches the world. Placement is
-  semantics: declare guards above the rows they protect.
+- **Guards are pure.** A guard reads the world only through `read` — never
+  dispatches, never touches the world. Placement is semantics: declare
+  guards above the rows they protect.
+- **The locality axiom.** Every citizen invocation is a pure function of
+  (current state, message) — never of why the cursor arrived, what round it
+  is, or what minted what. STORES TRANSFORM STATE AND NOTHING ELSE; GUARDS
+  ENQUEUE CURSORS (at 0 or x+1) AND NOTHING ELSE. History reaches the
+  future only through state, so replay totality is a theorem, provenance is
+  invisible (if causation matters, it goes ON the fact), and every citizen
+  is table-testable with (state, msg) pairs — judgments are values.
+- **Mints derive, never sequence.** A legitimate mint is a fact the fold
+  already implies, restatable as a law about state ("whenever X folds, Y
+  exists"). Sequencing over time belongs to effects; a mint chain past the
+  depth budget throws — a design diagnosis, not a runtime hazard.
 
 ## Store keys are gradually typed
 

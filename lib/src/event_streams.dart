@@ -60,7 +60,6 @@ extension StoreEventStream<K, E extends Identifiable<K>, M extends Msg>
   Stream<StoreEvent<K, E, M2>> on<M2 extends M>() =>
       where((e) => e.msg is M2).map((e) => StoreEvent(
           msg: e.msg as M2,
-          env: e.env,
           before: e.before,
           after: e.after,
           changed: e.changed,

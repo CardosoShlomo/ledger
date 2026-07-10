@@ -181,8 +181,8 @@ final class WriteSupportsShop extends UnitProjection<String?, String> {
 final class DedupeLoad extends Guard<LoadCatalog> {
   const DedupeLoad();
   @override
-  Set<Msg> judge(Envelope env, LoadCatalog msg, ReadStore read) =>
-      read(const CatalogInFlight()) ? const {} : {msg};
+  Set<Judgment> judge(LoadCatalog msg, ReadStore read) =>
+      read(const CatalogInFlight()) ? const {} : {.forward(msg)};
 }
 
 /// The CACHE gate: a cached product inside a COVERED window is a corpse —
@@ -192,11 +192,11 @@ final class DedupeLoad extends Guard<LoadCatalog> {
 final class StripCachedCatalog extends Guard<CachedCatalog> {
   const StripCachedCatalog();
   @override
-  Set<Msg> judge(Envelope env, CachedCatalog msg, ReadStore read) {
+  Set<Judgment> judge(CachedCatalog msg, ReadStore read) {
     final covered = read(const CatalogCoverage());
     return {
-      CachedCatalog(
-          [for (final p in msg.products) if (!covered.contains(p.addedAt)) p]),
+      .forward(CachedCatalog(
+          [for (final p in msg.products) if (!covered.contains(p.addedAt)) p])),
     };
   }
 }
@@ -207,8 +207,8 @@ final class StripCachedCatalog extends Guard<CachedCatalog> {
 final class RuleCatalogPage extends Guard<CatalogPage> {
   const RuleCatalogPage();
   @override
-  Set<Msg> judge(Envelope env, CatalogPage msg, ReadStore read) {
-    if (msg.products.isEmpty) return {msg};
+  Set<Judgment> judge(CatalogPage msg, ReadStore read) {
+    if (msg.products.isEmpty) return {.forward(msg)};
     final cursors = [for (final p in msg.products) p.addedAt]..sort();
     final lo = msg.hasMore ? cursors.first : null; // final page: open below
     final hi = cursors.last;
@@ -218,14 +218,14 @@ final class RuleCatalogPage extends Guard<CatalogPage> {
       ...read(const Catalog()),
     };
     return {
-      msg,
-      CatalogRuled(lo, hi, {
+      .forward(msg),
+      .forward(CatalogRuled(lo, hi, {
         for (final p in known.values)
           if (!listed.contains(p.id) &&
               (lo == null || p.addedAt >= lo) &&
               p.addedAt <= hi)
             p.id,
-      }),
+      })),
     };
   }
 }
