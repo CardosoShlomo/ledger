@@ -1,6 +1,7 @@
 ## 0.10.0
 
 - BREAKING: the memories hold NOTHING but their fold — deleted: `Flags`/`Stability`, the flags sidecar (`flagsOf`, `watchStatus`, `invalidate*`), optimistic overlays (`command`, `rollback`, `dispatch`'s `optimistic`/`correlationId`), Door-1 (`consume`, `gc`, `watchers`), `Bus.connection`/`setConnected`, and `Awaits` entirely. Every status is a consumer ROW (docks, in-flight units, coverage, a connection unit) — it replays, guards read it, laws state it.
+- BREAKING: `store.call(id)` / `EntityRef` deleted — the keyed reactive read is the binding layer's `store.entityOf(context, id)`; `store[id]` stays the value-now read.
 
 ## 0.9.0
 

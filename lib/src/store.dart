@@ -506,11 +506,6 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   /// canon reads by nav id.
   E? operator [](K key) => _resolved(key, _base[key]);
 
-  /// A keyed HANDLE — `store(id)`: a first-class, passable reference to one
-  /// entity slot. `[]` answers "the value, now"; `call` constructs the
-  /// reference (read it reactively via the UI layer's `ref.of(context)`).
-  EntityRef<K, E, M> call(K id) => EntityRef._(this, id);
-
   /// All entries, unioned with store-source extras (see [entities]).
   Iterable<E> get values => _storeSources.isEmpty
       ? _base.values
@@ -534,15 +529,3 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   }
 }
 
-/// A (store, id) reference — one entity slot as a first-class value. Pure:
-/// carries no subscription; readers (e.g. canon_flutter's `ref.of(context)`)
-/// decide how to observe it.
-final class EntityRef<K, E extends Identifiable<K>, M extends Msg> {
-  const EntityRef._(this.store, this.id);
-
-  final StoreMemory<K, E, M> store;
-  final K id;
-
-  /// The value, now (non-reactive) — same as `store[id]`.
-  E? get value => store[id];
-}
