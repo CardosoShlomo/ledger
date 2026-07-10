@@ -187,8 +187,14 @@ class Ledger implements LedgerRows {
   /// the exact feed registered stores reduce — and wire your own reduce logic
   /// (a riverpod Notifier, a bloc) where [Store] is too simple. Side-effect
   /// subscribers (snackbars, sounds) belong here too: post-guard, so nothing
-  /// fires on a vetoed message. For the complete ungated record
-  /// (replay/debug/transport), tap `journal.on<M>` explicitly.
+  /// fires on a vetoed message.
+  ///
+  /// OBSERVE here, RECORD on `journal.on`. This feed includes MINTED facts
+  /// (provenance-blind — an effect fires on a derived ask exactly like a
+  /// dispatched one). Anything that RECORDS facts — persistence for replay,
+  /// a transport mirror, replication — taps `journal.on` instead: mints
+  /// re-derive, so a recording of the admitted feed applies every
+  /// derivation twice (once from the copy, once re-derived).
   Stream<M> on<M extends Msg>() => _posted.on<M>();
 
   /// A live store for [spec], standing at the CURRENT row: it folds
