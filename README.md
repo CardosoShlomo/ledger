@@ -29,31 +29,50 @@ keeps the original fact — guards shape the admitted feed, never the record.
 ## Two doors
 
 The app is a const VALUE — a `Regency` of rows in traversal order plus the
-merge edges (each projection carries its own endpoints):
+merge edges (each projection carries its own endpoints). Reader rows get
+NAMES — const globals the consumer owns (const canonicalization makes the
+global and any equal construction ONE instance, so the name IS the row):
 
 ```dart
+const catalogCovered = CatalogCovered();
+const localCatalog = LocalCatalog();
+const catalog = Catalog();
+
 const app = Regency({
-  CatalogCovered(),
+  catalogCovered,
   CachedCatalogGate(),  // set order is the queue — placement is protection
-  LocalCatalog(),
-  Catalog(),
+  localCatalog,
+  catalog,
 }, merges: {LocalCatalogSupports()});
 
 final ledger = Ledger.root(app); // splices rows, wires merges
 ```
 
 Regencies nest (a segment splices at its position) and a plain regent is a
-one-row graph: `Ledger.root(const NavUnit())`. The ledger then has exactly
-TWO doors:
+one-row graph: `Ledger.root(const NavUnit())`. A FEATURE whose rows are
+provably self-contained travels as one named graft — its merge edges ride
+along and resolve before the root's own:
+
+```dart
+final class WishlistFeature extends Regency {
+  const WishlistFeature()
+      : super(const {WishlistCap(), wishlist},
+              merges: const {LocalWishlistSupports()});
+}
+```
+
+Grouping is splice-in-place and reads stay FLAT — `read(wishlist)` never
+knows the grouping exists, so a graft can never change what a row means,
+only where the set is written down. The ledger then has exactly TWO doors:
 
 - **`dispatch(msg)`** — state a fact.
 - **`at(position)`** — stand at a position, typed by the spec instance:
-  `at(const Catalog())` is the store's live memory,
-  `at(const Viewer())` the unit's, `at(const CachedCatalogGate())` the
-  guard's story (`GuardEvent`s: judged input + verdict — `dropped`,
-  `forwarded`, `minted`), `at(.entry)` the complete pre-judgment RECORD,
-  `at(.exit)` the admitted feed (`at(.exit).msgs<OrderPlaced>()` — effects
-  tap here, so nothing fires on a dropped message).
+  `at(catalog)` is the store's live memory, `at(viewer)` the unit's,
+  `at(const CachedCatalogGate())` the guard's story (`GuardEvent`s: judged
+  input + verdict — `dropped`, `forwarded`, `minted`), `at(.entry)` the
+  complete pre-judgment RECORD, `at(.exit)` the admitted feed
+  (`at(.exit).msgs<OrderPlaced>()` — effects tap here, so nothing fires on
+  a dropped message).
 
 On every handle, PLURAL members are streams (`msgs<T>()`, `states`,
 `statesBefore`, `events` — all derived from the one atomic `events`, so
@@ -62,11 +81,13 @@ unit, `entities`/`[id]`/`ids` for a store — merge-resolved; `folded` is the
 unmerged fold truth on both, what guards judge through and what `replay`
 snapshots).
 
-Guards read the world only through `read(const Catalog())` — the ledger's
-own folded state by REGENT IDENTITY: the constructor expression IS the
-row's name (const canonicalization). With canon's generator the graph is
-annotated (`@canon const app = Regency(...)`) and every row gets a typed
-getter (`ledger.catalog`) — sugar over `at`.
+Guards read the world only through `read(catalog)` — the ledger's own
+folded state by REGENT IDENTITY (the const global or an equal construction
+name the same row). With canon's generator the graph is annotated
+(`@canon const app = Regency(...)`) and each row CLASS gains a read
+extension, so the same globals answer everywhere: `read(catalog)` in a
+judge, `catalog.of(context)` in a build, `catalog.entities` now — the
+generator never invents a name.
 
 ## Optimism
 
