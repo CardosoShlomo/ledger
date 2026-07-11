@@ -306,7 +306,7 @@ class UnitMemory<S, M extends Msg> {
   S _base; // the fold's truth — the ONLY state this memory holds
 
   /// The folded value — what a guard's `read` returns.
-  S get base => _base;
+  S get folded => _base;
 
   void _apply(M msg) {
     final before = _base;
@@ -329,12 +329,13 @@ class UnitMemory<S, M extends Msg> {
   /// [base] and the fold never see it.
   void merge<S2, M2 extends Msg>(
       UnitMemory<S2, M2> source, UnitProjection<S2, S> projection) {
-    _merges.add((v) => projection.resolve(v, source.value));
+    _merges.add((v) => projection.resolve(v, source.state));
     _mergeSubs.add(source.changes.listen((_) => _changes.add(null)));
   }
 
-  /// The value, now — the fold's truth resolved through the merge edges.
-  S get value {
+  /// The state, now — the fold's truth resolved through the merge edges
+  /// (the dock's promise answers here; [folded] is the unmerged reading).
+  S get state {
     var v = _base;
     for (final m in _merges) {
       v = m(v);
@@ -395,7 +396,7 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
 
   /// The folded collection — the ONLY state this memory holds; no merge
   /// edges. What a guard's `read` returns.
-  IdentifiableMap<K, E> get base => _base;
+  IdentifiableMap<K, E> get folded => _base;
   final StreamController<K> _changes = StreamController<K>.broadcast();
   final StreamController<void> _structure =
       StreamController<void>.broadcast();
@@ -470,17 +471,17 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
       UnitMemory<S?, Msg> source, Projection<S, K, E> projection) {
     _merges.add(_MergeEdge<K, E>(
       (k) {
-        final s = source.value;
+        final s = source.state;
         return s != null && s.id == k ? s : null;
       },
       (row, s) => projection.resolve(row, s as S),
     ));
     // Surgical reactivity: a source change moves exactly the claimed keys —
     // the previous claim (released) and the current one (answered anew).
-    var last = source.value?.id;
+    var last = source.state?.id;
     _mergeSubs.add(source.changes.listen((_) {
       final prev = last;
-      final now = source.value?.id;
+      final now = source.state?.id;
       last = now;
       if (prev != null && prev != now) _changes.add(prev);
       if (now != null) _changes.add(now);
@@ -544,6 +545,11 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   /// The value at [key], resolved through the merge edges — this is what
   /// canon reads by nav id.
   E? operator [](K key) => _resolved(key, _base[key]);
+
+  /// The key SEQUENCE, resolved (own keys first, then store-source extras) —
+  /// the synchronous twin of the reactive `of(context)` read.
+  List<K> get ids =>
+      _storeSources.isEmpty ? [..._base.keys] : [..._unionKeys];
 
   /// All entries, unioned with store-source extras (see [entities]).
   Iterable<E> get values => _storeSources.isEmpty

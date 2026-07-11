@@ -71,7 +71,7 @@ void main() {
     ledger.dispatch(_Shout('hey'));
     await Future<void>.delayed(Duration.zero);
     expect(docs['a']!.text, 'one');
-    expect(volume.value, 1);
+    expect(volume.state, 1);
     expect(gate, isNotNull);
     ledger.close();
   });
@@ -82,7 +82,7 @@ void main() {
     ledger.dispatch(_Shout(''));
     ledger.dispatch(_Shout('kept'));
     await Future<void>.delayed(Duration.zero);
-    expect(ledger.at(const _Volume()).value, 1);
+    expect(ledger.at(const _Volume()).state, 1);
     ledger.close();
   });
 
@@ -138,8 +138,8 @@ void main() {
 
   test('standing at a spec no row holds throws (identity lookup)', () {
     final ledger = Ledger.root(_app);
-    expect(() => ledger.at(const _Volume()).value, returnsNormally);
-    expect(() => ledger.at(const _Docs()).base, returnsNormally);
+    expect(() => ledger.at(const _Volume()).state, returnsNormally);
+    expect(() => ledger.at(const _Docs()).folded, returnsNormally);
     expect(() => ledger.at(const _Stranger()), throwsStateError);
     ledger.close();
   });

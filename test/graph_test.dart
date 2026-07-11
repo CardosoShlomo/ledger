@@ -141,17 +141,17 @@ void main() {
     final ledger = Ledger.root(app);
     ledger.dispatch(const RenameShop('corner & co'));
     final shop = ledger.at(const Shop());
-    expect(shop.value, 'corner & co'); // the dock's promise answers reads
-    expect(ledger.at(const Shop()).base, 'corner shop'); // base never folds it
+    expect(shop.state, 'corner & co'); // the dock's promise answers reads
+    expect(ledger.at(const Shop()).folded, 'corner shop'); // base never folds it
     ledger.dispatch(const ShopSaved('corner & co'));
-    expect(ledger.at(const Shop()).base, 'corner & co');
+    expect(ledger.at(const Shop()).folded, 'corner & co');
     ledger.close();
   });
 
   test('a single regent IS a ledger — no graph ceremony', () {
     final ledger = Ledger.root(const Covered());
     ledger.dispatch(const ProductsLoaded([]));
-    expect(ledger.at(const Covered()).base, isTrue);
+    expect(ledger.at(const Covered()).folded, isTrue);
     ledger.close();
   });
 

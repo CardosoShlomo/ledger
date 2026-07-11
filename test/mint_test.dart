@@ -50,7 +50,7 @@ void main() {
   test('a mint re-enters at index 0: the row ABOVE the gate folds it', () {
     final ledger = Ledger.root(_app);
     ledger.dispatch(const _Ping());
-    expect(ledger.at(const _Counter()).base, 1);
+    expect(ledger.at(const _Counter()).folded, 1);
     ledger.close();
   });
 
@@ -64,7 +64,7 @@ void main() {
     return Future(() {
       expect(recorded.whereType<_Inc>(), isEmpty);
       expect(recorded.whereType<_Ping>().length, 2);
-      expect(ledger.at(const _Counter()).base, 2);
+      expect(ledger.at(const _Counter()).folded, 2);
       sub.cancel();
       ledger.close();
     });

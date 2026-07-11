@@ -47,14 +47,14 @@ void main() {
     main.merge(side, const _ApplyPending());
 
     bus.dispatch(const _Set(1));
-    expect(main.value, 1);
+    expect(main.state, 1);
 
     bus.dispatch(const _PendingSet(9));
-    expect(main.value, 9); // the edge answers
-    expect(main.base, 1); // the fold never saw it
+    expect(main.state, 9); // the edge answers
+    expect(main.folded, 1); // the fold never saw it
 
     bus.dispatch(const _PendingSet(null));
-    expect(main.value, 1); // the edge released
+    expect(main.state, 1); // the edge released
   });
 
   test('a source change fires the target changes stream', () async {
@@ -68,6 +68,6 @@ void main() {
     bus.dispatch(const _PendingSet(9));
     await Future<void>.delayed(Duration.zero);
     expect(fired, greaterThan(0));
-    expect(main.value, 9);
+    expect(main.state, 9);
   });
 }

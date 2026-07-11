@@ -130,7 +130,7 @@ class Ledger implements LedgerRows {
   /// spec instance carries the handle type, so nothing untyped comes back.
   ///
   ///  * a STORE row → its `StoreMemory` (`at(const Products())[id]`)
-  ///  * a UNIT row → its `UnitMemory` (`at(const Viewer()).value`)
+  ///  * a UNIT row → its `UnitMemory` (`at(const Viewer()).state`)
   ///  * a GUARD row → its `GuardMemory` (`at(const CachedGate()).dropped`)
   ///  * `.entry` → the RECORD's [Feed] (`at(.entry).msgs<Msg>()`)
   ///  * `.exit` → the ADMITTED [Feed] (`at(.exit).msgs<OrderPlaced>()`)
@@ -155,8 +155,8 @@ class Ledger implements LedgerRows {
   Map<Object, Object?> snapshot() => {
         for (final e in _specMemories.entries)
           e.key: switch (e.value) {
-            final StoreMemory m => {...m.base},
-            final UnitMemory m => m.base,
+            final StoreMemory m => {...m.folded},
+            final UnitMemory m => m.folded,
             _ => null,
           },
       };
@@ -172,12 +172,12 @@ class Ledger implements LedgerRows {
   // guard row judges through (the injected [ReadStore]): base truth only,
   // no optimistic overlays, no merge edges, so a judge never rules on a
   // prediction that hasn't been acknowledged. The public spelling is
-  // `at(spec).base`.
+  // `at(spec).folded`.
   S _read<S>(AnyStore<S> spec) {
     final memory = _specMemories[spec] ?? (throw _noRow(spec));
     return switch (memory) {
-      final StoreMemory m => m.base as S,
-      final UnitMemory m => m.base as S,
+      final StoreMemory m => m.folded as S,
+      final UnitMemory m => m.folded as S,
       _ => throw StateError('unreadable memory for ${spec.runtimeType}'),
     };
   }

@@ -74,7 +74,7 @@ void main() {
     expect(identical(crud.store, const OrdersCrud().store), isTrue);
     final ledger = Ledger.root(crud);
     expect(ledger.at(crud.store), isNotNull);
-    expect(ledger.at(crud.covered).base, isFalse);
+    expect(ledger.at(crud.covered).folded, isFalse);
     ledger.close();
   });
 
@@ -84,7 +84,7 @@ void main() {
     ledger.dispatch(const CachedOrders([Order('o1', 100)]));
     expect(orders['o1'], isNotNull); // shadow answers through the merge
     ledger.dispatch(const OrdersLoaded([Order('o2', 250)]));
-    expect(ledger.at(crud.covered).base, isTrue);
+    expect(ledger.at(crud.covered).folded, isTrue);
     ledger.dispatch(const CachedOrders([Order('o3', 999)]));
     expect(orders['o3'], isNull); // gated
     ledger.close();
@@ -96,10 +96,10 @@ void main() {
     ledger.dispatch(const OrdersLoaded([]));
     ledger.dispatch(const PlaceOrder(Order('o9', 40)));
     expect(orders['o9'], isNotNull); // pending, via the dock edge
-    expect(ledger.at(crud.store).base['o9'], isNull); // base truth: not admitted
+    expect(ledger.at(crud.store).folded['o9'], isNull); // base truth: not admitted
     ledger.dispatch(const OrderPlaced(Order('o9', 40)));
-    expect(ledger.at(crud.store).base['o9'], isNotNull); // admitted
-    expect(ledger.at(crud.dock!).base['o9'], isNull); // dock cleared
+    expect(ledger.at(crud.store).folded['o9'], isNotNull); // admitted
+    expect(ledger.at(crud.dock!).folded['o9'], isNull); // dock cleared
     ledger.close();
   });
 
@@ -121,10 +121,10 @@ void main() {
     ledger.dispatch(const OrdersLoaded([Order('o1', 100)]));
     ledger.dispatch(const PlaceOrder(Order('o9', 40)));
     ledger.dispatch(const SessionReset());
-    expect(ledger.at(crud.store).base, isEmpty);
-    expect(ledger.at(crud.dock!).base, isEmpty);
-    expect(ledger.at(crud.cache).base, isEmpty);
-    expect(ledger.at(crud.covered).base, isFalse);
+    expect(ledger.at(crud.store).folded, isEmpty);
+    expect(ledger.at(crud.dock!).folded, isEmpty);
+    expect(ledger.at(crud.cache).folded, isEmpty);
+    expect(ledger.at(crud.covered).folded, isFalse);
     ledger.close();
   });
 
@@ -133,7 +133,7 @@ void main() {
     expect(list.dock, isNull);
     final ledger = Ledger.root(list);
     ledger.dispatch(const PlaceOrder(Order('o9', 40))); // Never slot: inert
-    expect(ledger.at(list.store).base, isEmpty);
+    expect(ledger.at(list.store).folded, isEmpty);
     ledger.close();
   });
 
@@ -142,8 +142,8 @@ void main() {
     final app = Regency({const OrdersList(), crud});
     final ledger = Ledger.root(app);
     ledger.dispatch(const OrdersLoaded([Order('o1', 100)]));
-    expect(ledger.at(crud.covered).base, isTrue);
-    expect(ledger.at(const OrdersList().covered).base, isTrue);
+    expect(ledger.at(crud.covered).folded, isTrue);
+    expect(ledger.at(const OrdersList().covered).folded, isTrue);
     ledger.close();
   });
 

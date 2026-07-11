@@ -281,15 +281,15 @@ void main() {
       [Product('p1', 'kettle', 10), Product('p3', 'mug', 30)],
       hasMore: false));
   print('catalog: ${[for (final p in catalog.values) p.name]}');
-  final covered = ledger.at(const CatalogCoverage()).base;
+  final covered = ledger.at(const CatalogCoverage()).folded;
   print('covered 20? ${covered.contains(20)}');
 
   // 9/10. The dock: the promise shows instantly, base never lied, the echo
   // settles — and a silent server would settle via a timeout FACT instead.
   ledger.dispatch(const RenameShop('corner shop & co'));
-  print('shop reads "${shop.value}", base holds "${shop.base}"');
+  print('shop reads "${shop.state}", base holds "${shop.folded}"');
   ledger.dispatch(const ShopSaved('corner shop & co'));
-  print('settled: "${shop.value}"');
+  print('settled: "${shop.state}"');
 
   // 12. The LAW: cache-vs-authority converges in either order.
   final a = replay(app, [
