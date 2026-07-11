@@ -7,7 +7,7 @@ import 'store.dart';
 ///
 /// ```dart
 /// @canon
-/// const ledger = RegentGraph({
+/// const ledger = Regency({
 ///   TodosCovered(),
 ///   CachedTodosGate(),   // order is the set's order — placement is protection
 ///   LocalTodos(),
@@ -21,12 +21,12 @@ import 'store.dart';
 /// [Projection.target]/[Projection.source] endpoints as const fields, so
 /// the merges set lists bare projection instances.
 ///
-/// Nesting: a row may itself be a [RegentGraph] — its rows SPLICE at that
+/// Nesting: a row may itself be a [Regency] — its rows SPLICE at that
 /// position (a graft: the segment's regents are real rows of the one
 /// queue, visible to laws and replay). A brick (a parameterized graph
 /// subclass) is the same thing with a name.
-base class RegentGraph extends Regent {
-  const RegentGraph(this.rows, {this.merges = const {}});
+base class Regency extends Regent {
+  const Regency(this.rows, {this.merges = const {}});
 
   /// The ordered rows — regents and nested graphs, spliced in set order.
   final Set<Regent> rows;

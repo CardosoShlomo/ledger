@@ -108,12 +108,12 @@ final class WriteSupportsShop extends UnitProjection<String?, String> {
 }
 
 // A nested SEGMENT — the shop's dock as a graft: rows splice in place.
-const shopGraft = RegentGraph({
+const shopGraft = Regency({
   ShopWrite(),
   Shop(),
 }, merges: {WriteSupportsShop()});
 
-const app = RegentGraph({
+const app = Regency({
   Covered(),
   CacheGate(), // protects the shadow below
   LocalProducts(),
@@ -156,17 +156,17 @@ void main() {
   });
 
   test('the identical regent twice anywhere in the tree throws at build', () {
-    const dup = RegentGraph({
+    const dup = Regency({
       Covered(),
-      RegentGraph({Covered()}),
+      Regency({Covered()}),
     });
     expect(() => Ledger.root(dup), throwsStateError);
   });
 
   test('the identical graph spliced twice throws at build', () {
-    const dup = RegentGraph({
+    const dup = Regency({
       shopGraft,
-      RegentGraph({shopGraft}),
+      Regency({shopGraft}),
     });
     expect(() => Ledger.root(dup), throwsStateError);
   });

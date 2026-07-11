@@ -1,5 +1,5 @@
 /// The CRUD brick family: curated bundles of role-typed regents over one
-/// resource. A brick is a [RegentGraph] whose rows are BUILT from its
+/// resource. A brick is a [Regency] whose rows are BUILT from its
 /// generic slots — the consumer binds facts by declaring a named subclass:
 ///
 /// ```dart
@@ -24,7 +24,7 @@ library;
 
 import 'package:identifiable/identifiable.dart';
 
-import 'graph.dart';
+import 'regency.dart';
 import 'guard.dart';
 import 'msg.dart';
 import 'roles.dart';
@@ -120,7 +120,7 @@ final class ShadowSupports<K, T extends Identifiable<K>>
 /// The full-arity CRUD brick — presets below fix unused slots to [Never].
 /// Subclass to declare a resource; `@override get store` (and siblings) is
 /// the bring-your-own extension point.
-abstract base class CrudRegent<
+abstract base class Crud<
     K,
     T extends Identifiable<K>,
     L extends ListMsg<T>,
@@ -128,8 +128,8 @@ abstract base class CrudRegent<
     A extends AddMsg<T>,
     E extends EchoOf<T>,
     R extends RemoveMsg<K>,
-    G extends RemoveMsg<K>> extends RegentGraph {
-  const CrudRegent() : super(const {});
+    G extends RemoveMsg<K>> extends Regency {
+  const Crud() : super(const {});
 
   // Rows are BUILT (type-parameterized regents cannot be const) and memoized
   // per const-canonical brick instance, so the instances the ledger mounts
@@ -203,7 +203,7 @@ final class _CrudParts {
 /// gate. Write slots are [Never].
 abstract base class ListCrud<K, T extends Identifiable<K>,
         L extends ListMsg<T>, C extends CacheMsg<T>>
-    extends CrudRegent<K, T, L, C, Never, Never, Never, Never> {
+    extends Crud<K, T, L, C, Never, Never, Never, Never> {
   const ListCrud();
 }
 
@@ -218,6 +218,6 @@ abstract base class WritableListCrud<
         E extends EchoOf<T>,
         R extends RemoveMsg<K>,
         G extends RemoveMsg<K>>
-    extends CrudRegent<K, T, L, C, A, E, R, G> {
+    extends Crud<K, T, L, C, A, E, R, G> {
   const WritableListCrud();
 }

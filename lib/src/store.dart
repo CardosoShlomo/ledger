@@ -57,7 +57,7 @@ class RegentMerge<Self extends RegentNode<Self>> {
 abstract interface class AnyStore<S> {}
 
 /// The common face of [Projection] and [UnitProjection] — what a
-/// `RegentGraph.merges` set holds.
+/// `Regency.merges` set holds.
 abstract interface class AnyProjection {}
 
 /// A guard's view of the world: this ledger's own state, looked up by
@@ -156,7 +156,7 @@ abstract base class Projection<S extends Identifiable<K>, K, E>
   /// [resolve]. Endpoints are const fields set through the subclass ctor
   /// (`: super(const Todos(), const LocalTodos())` — a const initializer
   /// list needs the keyword spelled, and it canonicalizes), which is
-  /// what lets a [RegentGraph] take bare projection instances as its
+  /// what lets a [Regency] take bare projection instances as its
   /// `merges` set. Null endpoints = call-site wiring (`merge`/`mergeStore`
   /// name them directly).
   const Projection([this.target, this.source]);

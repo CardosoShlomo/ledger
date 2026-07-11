@@ -139,7 +139,7 @@ void main() {
 
   test('a brick splices into a larger graph; outside guards read its parts',
       () {
-    final app = RegentGraph({const OrdersList(), crud});
+    final app = Regency({const OrdersList(), crud});
     final ledger = Ledger.root(app);
     ledger.dispatch(const OrdersLoaded([Order('o1', 100)]));
     expect(ledger.read(crud.covered), isTrue);

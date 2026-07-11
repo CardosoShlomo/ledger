@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:identifiable/identifiable.dart';
 
-import 'graph.dart';
+import 'regency.dart';
 import 'guard.dart';
 import 'msg.dart';
 import 'store.dart';
@@ -76,11 +76,11 @@ class Ledger implements LedgerRows {
   }
 
   // ── Graph splicing ──────────────────────────────────────────────────────
-  final Set<RegentGraph> _graphsSeen = Set.identity();
+  final Set<Regency> _graphsSeen = Set.identity();
   final List<AnyProjection> _pendingMerges = [];
 
   @override
-  void graph(covariant RegentGraph spec) {
+  void graph(covariant Regency spec) {
     if (!_graphsSeen.add(spec)) {
       throw StateError(
           'the identical ${spec.runtimeType} graph appears twice — const '

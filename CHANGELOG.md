@@ -1,10 +1,10 @@
 ## 0.12.0
 
-- `RegentGraph`: the app as a const VALUE — ordered regent rows plus merge edges; graphs nest (a segment splices in place) and a plain regent is a one-row graph.
+- `Regency`: the app as a const VALUE — ordered regent rows plus merge edges; graphs nest (a segment splices in place) and a plain regent is a one-row graph.
 - `Ledger.root(regent)` / `replayRoot(regent, order)`: the graph form of construction and replay; `ledger.memory(spec)` / `ledger.snapshot()` read back by instance identity.
 - `Projection`/`UnitProjection` carry their endpoints as const fields (`: super(const Todos(), const LocalTodos())`) — the projection IS the edge.
 - The role vocabulary: `ListMsg`/`CacheMsg`/`AddMsg`/`EchoOf`/`RemoveMsg`/`ResetMsg` — field-less mixins; extends = meaning, with = shape, implements = audience.
-- CRUD bricks: `CrudRegent` slot-bound base with `ListCrud`/`WritableListCrud` presets over role-typed regents (`ResourceRows`, `ResourceCache`, `ResourceDock`, `Coverage`, `CacheGate`, `ShadowSupports`).
+- CRUD bricks: `Crud` slot-bound base with `ListCrud`/`WritableListCrud` presets over role-typed regents (`ResourceRows`, `ResourceCache`, `ResourceDock`, `Coverage`, `CacheGate`, `ShadowSupports`).
 
 ## 0.11.0
 
