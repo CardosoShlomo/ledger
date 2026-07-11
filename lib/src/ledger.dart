@@ -148,14 +148,15 @@ class Ledger implements LedgerRows {
       'IDENTITY: match the row\'s constructor args exactly, and spell '
       '`const` (a non-const expression is a fresh instance).');
 
-  /// Every enrolled regent's state, keyed by spec instance — plain
-  /// collections so `equals`/`isNot` compare structurally (the graph form
-  /// of a replay snapshot).
+  /// Every enrolled regent's BASE state, keyed by spec instance — plain
+  /// collections so `equals`/`isNot` compare structurally (the replay
+  /// snapshot). Fold truth only: merge edges are read-time and stay out,
+  /// so a dock's promise or a shadow's answer never leaks into a law.
   Map<Object, Object?> snapshot() => {
         for (final e in _specMemories.entries)
           e.key: switch (e.value) {
-            final StoreMemory m => {...m.entities},
-            final UnitMemory m => m.value,
+            final StoreMemory m => {...m.base},
+            final UnitMemory m => m.base,
             _ => null,
           },
       };
