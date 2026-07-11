@@ -38,13 +38,13 @@ class OrderPlaced extends OrderMsg with EchoOf<Order> {
   final Order item;
 }
 
-class CancelOrder extends OrderMsg with RemoveMsg<String> {
+class CancelOrder extends OrderMsg with Identifiable<String> {
   const CancelOrder(this.id);
   @override
   final String id;
 }
 
-class OrderGone extends OrderMsg with RemoveMsg<String> {
+class OrderGone extends OrderMsg with Identifiable<String> {
   const OrderGone(this.id);
   @override
   final String id;
@@ -62,6 +62,13 @@ final class OrdersCrud extends WritableListCrud<String, Order, OrdersLoaded,
 final class OrdersList
     extends ListCrud<String, Order, OrdersLoaded, CachedOrders> {
   const OrdersList();
+}
+
+/// A plain guard row beside the brick — the "larger graph".
+final class SessionGate extends Veto<SessionReset> {
+  const SessionGate();
+  @override
+  bool block(SessionReset msg, ReadStore read) => false;
 }
 
 void main() {
@@ -123,7 +130,7 @@ void main() {
     ledger.dispatch(const SessionReset());
     expect(ledger.at(crud.store).folded, isEmpty);
     expect(ledger.at(crud.dock!).folded, isEmpty);
-    expect(ledger.at(crud.cache).folded, isEmpty);
+    expect(ledger.at(crud.cache!).folded, isEmpty);
     expect(ledger.at(crud.covered).folded, isFalse);
     ledger.close();
   });
@@ -137,14 +144,19 @@ void main() {
     ledger.close();
   });
 
-  test('a brick splices into a larger graph; outside guards read its parts',
+  test('a brick splices into a larger graph; outside reads reach its parts',
       () {
-    final app = Regency({const OrdersList(), crud});
+    final app = Regency({SessionGate(), crud});
     final ledger = Ledger.root(app);
     ledger.dispatch(const OrdersLoaded([Order('o1', 100)]));
     expect(ledger.at(crud.covered).folded, isTrue);
-    expect(ledger.at(const OrdersList().covered).folded, isTrue);
+    expect(ledger.at(crud.store).ids, ['o1']);
     ledger.close();
+  });
+
+  test('a second brick of the same entity throws — one home per entity', () {
+    const dup = Regency({OrdersList(), OrdersCrud()});
+    expect(() => Ledger.root(dup), throwsStateError);
   });
 
   test('replay re-derives the brick — same journal, same snapshot', () {

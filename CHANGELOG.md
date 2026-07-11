@@ -1,3 +1,13 @@
+## 0.13.0
+
+- Generic facts (`Listed<T>`, `Added<T>`, `Removed<K>`) + `SimpleCrud<K, T>`: a purely LOCAL resource is one line with zero message declarations — `dispatch(Added(todo))`.
+- ONE resource per entity, enforced at boot: a second brick of the same entity throws (an entity has one authoritative home; a second view is a derived read) — which keeps the generic facts collision-free by construction.
+- BREAKING: `RemoveMsg<K>` deleted — id-targeted slots bound by `Identifiable<K>` (the slot supplies the meaning; the fact's own id is the target); `Crud.cache`/`dock` nullable (absent capabilities contribute nothing).
+- ARMS: a brick's folds are assembled from composable arm pieces (`listedArm`/`filledArm`/`upsertArm`/`settledArm`/`removedArm`/`clearedArm` over one `ResourceStore`) — presets carry exactly the arms their slots use, and future built-ins assemble from the same vocabulary.
+- `RemovableListCrud<K, T, L, C, R>`: list + cache + keyed removal, no write dock.
+- Batteries live under `src/batteries/` (roles, crud, covered ranges, event streams) — the core queue knows them only through the `EntityHome` face.
+- `Store.initial` is optional positional (`: super(const {...})` to seed).
+
 ## 0.12.0
 
 - `Regency`: the app as a const VALUE — ordered regent rows plus merge edges; graphs nest (a segment splices in place) and a plain regent is a one-row graph; `Ledger.root(regent)` builds it, splicing rows and auto-wiring merges.
