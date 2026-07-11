@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:identifiable/identifiable.dart';
 
+import 'graph.dart';
 import 'guard.dart';
 import 'msg.dart';
 import 'store.dart';
@@ -60,6 +61,93 @@ class Ledger implements LedgerRows {
   /// [SpecLedger.on] reads the feed at any declared position.
   static SpecLedger<R> of<R extends RegentNode<R>>(List<R> rows) =>
       SpecLedger._(rows);
+
+  /// The GRAPH form: a ledger from a single [Regent] — a graph splices its
+  /// rows (and its nested graphs') in order and its merges auto-wire; a
+  /// plain regent is the one-row ledger (`Ledger.root(const NavUnit())`).
+  static Ledger root(Regent root) {
+    final ledger = Ledger().._mountRoot(root);
+    return ledger;
+  }
+
+  void _mountRoot(Regent root) {
+    root.mount(this);
+    _applyMerges();
+  }
+
+  // ── Graph splicing ──────────────────────────────────────────────────────
+  final Set<RegentGraph> _graphsSeen = Set.identity();
+  final List<AnyProjection> _pendingMerges = [];
+
+  @override
+  void graph(covariant RegentGraph spec) {
+    if (!_graphsSeen.add(spec)) {
+      throw StateError(
+          'the identical ${spec.runtimeType} graph appears twice — const '
+          'canonicalization makes them one graft; a segment may be spliced '
+          'only once.');
+    }
+    for (final row in spec.rows) {
+      row.mount(this);
+    }
+    _pendingMerges.addAll(spec.merges);
+  }
+
+  /// Wire the collected projection edges — after every row is mounted, so
+  /// endpoints resolve by regent identity across the whole flattened tree.
+  void _applyMerges() {
+    for (final p in _pendingMerges) {
+      final (target, source) = switch (p) {
+        final Projection e => (e.target, e.source),
+        final UnitProjection e => (e.target, e.source),
+        _ => throw StateError('unknown projection kind ${p.runtimeType}'),
+      };
+      if (target == null || source == null) {
+        throw StateError(
+            '${p.runtimeType} sits in a graph\'s merges set but carries no '
+            'endpoints — pass them through the ctor: '
+            '`: super(TargetSpec(), SourceSpec())`.');
+      }
+      final tMem = _specMemories[target] ??
+          (throw StateError(
+              '${p.runtimeType}: its target ${target.runtimeType} is not a '
+              'row of this graph.'));
+      final sMem = _specMemories[source] ??
+          (throw StateError(
+              '${p.runtimeType}: its source ${source.runtimeType} is not a '
+              'row of this graph.'));
+      switch ((tMem, sMem, p)) {
+        case (final StoreMemory t, final StoreMemory s, Projection()):
+          (t as dynamic).mergeStore(s, p);
+        case (final StoreMemory t, final UnitMemory s, Projection()):
+          (t as dynamic).merge(s, p);
+        case (final UnitMemory t, final UnitMemory s, UnitProjection()):
+          (t as dynamic).merge(s, p);
+        default:
+          throw StateError(
+              '${p.runtimeType}: a ${tMem.runtimeType} target cannot read '
+              'from a ${sMem.runtimeType} source with this projection kind.');
+      }
+    }
+    _pendingMerges.clear();
+  }
+
+  /// The live memory enrolled for [spec] — a `StoreMemory` for stores, a
+  /// `UnitMemory` for units, null for guards/graphs. Instance-identity
+  /// keyed, same as [read].
+  Object? memory(AnyStore<Object?> spec) => _specMemories[spec];
+
+  /// Every enrolled regent's state, keyed by spec instance — plain
+  /// collections so `equals`/`isNot` compare structurally (the graph form
+  /// of a replay snapshot).
+  Map<Object, Object?> snapshot() => {
+        for (final e in _specMemories.entries)
+          e.key: switch (e.value) {
+            final StoreMemory m => {...m.entities},
+            final UnitMemory m => m.value,
+            _ => null,
+          },
+      };
 
   // ── Regent-identity state lookup (guards judge through it) ──
 

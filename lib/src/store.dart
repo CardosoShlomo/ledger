@@ -56,6 +56,10 @@ class RegentMerge<Self extends RegentNode<Self>> {
 /// the value for a unit — so one typed lookup serves both kinds.
 abstract interface class AnyStore<S> {}
 
+/// The common face of [Projection] and [UnitProjection] — what a
+/// `RegentGraph.merges` set holds.
+abstract interface class AnyProjection {}
+
 /// A guard's view of the world: this ledger's own state, looked up by
 /// regent IDENTITY — `read(const BrowseDeck())`, `read(const AuthMachine())`.
 /// Const canonicalization makes the constructor expression the regent's
@@ -102,6 +106,9 @@ abstract interface class LedgerRows {
       Store<K, E, M> spec);
   UnitMemory<S, M> unit<S, M extends Msg>(Unit<S, M> spec);
   void guard<M extends Msg>(covariant Object spec);
+
+  /// Splice a graph's rows at the current position and collect its merges.
+  void graph(covariant Object spec);
 }
 
 
@@ -143,8 +150,19 @@ final class StoreEvent<K, E extends Identifiable<K>, M extends Msg> {
 /// layer's `.of`/EntityScope). `entities`/`values` stay honest rows — a
 /// projection never appears in collection iteration, and reduces never see it.
 @immutable
-abstract base class Projection<S extends Identifiable<K>, K, E> {
-  const Projection();
+abstract base class Projection<S extends Identifiable<K>, K, E>
+    implements AnyProjection {
+  /// The projection IS the edge: [target] reads-from [source] through
+  /// [resolve]. Endpoints are const fields set through the subclass ctor
+  /// (`: super(const Todos(), const LocalTodos())` — a const initializer
+  /// list needs the keyword spelled, and it canonicalizes), which is
+  /// what lets a [RegentGraph] take bare projection instances as its
+  /// `merges` set. Null endpoints = call-site wiring (`merge`/`mergeStore`
+  /// name them directly).
+  const Projection([this.target, this.source]);
+
+  final AnyStore<Object?>? target;
+  final AnyStore<Object?>? source;
 
   /// The answer at the source's own key — called only when the read matches.
   E resolve(E? row, S source);
@@ -157,8 +175,12 @@ abstract base class Projection<S extends Identifiable<K>, K, E> {
 /// [resolve] no-ops itself when the source carries nothing. Read-time only:
 /// the fold and guards' `read` never see it.
 @immutable
-abstract base class UnitProjection<S, T> {
-  const UnitProjection();
+abstract base class UnitProjection<S, T> implements AnyProjection {
+  /// See [Projection] — the unit form carries its endpoints the same way.
+  const UnitProjection([this.target, this.source]);
+
+  final AnyStore<Object?>? target;
+  final AnyStore<Object?>? source;
 
   /// The effective value: the target's own [value] resolved through
   /// [source].

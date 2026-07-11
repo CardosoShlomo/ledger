@@ -3,10 +3,13 @@ export 'dart:async' show StreamSubscription;
 export 'package:identifiable/identifiable.dart';
 
 export 'src/covered_ranges.dart';
+export 'src/crud.dart';
 export 'src/event_streams.dart';
+export 'src/graph.dart';
 export 'src/guard.dart';
 export 'src/ledger.dart';
 export 'src/msg.dart';
 export 'src/pure.dart';
 export 'src/replay.dart';
+export 'src/roles.dart';
 export 'src/store.dart';

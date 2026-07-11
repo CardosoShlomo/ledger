@@ -56,3 +56,16 @@ IdentifiableMap<K, E> replayStore<K, E extends Identifiable<K>, M extends Msg>(
   bus.close();
   return state;
 }
+
+/// The graph form of [replay]: folds [order] through a ledger built from
+/// [root] (a [RegentGraph] or any single regent) and returns every
+/// regent's state keyed by SPEC INSTANCE — `z[const Todos()]`.
+Map<Object, Object?> replayRoot(Regent root, List<Msg> order) {
+  final ledger = Ledger.root(root);
+  for (final msg in order) {
+    ledger.dispatch(msg);
+  }
+  final snapshot = ledger.snapshot();
+  ledger.close();
+  return snapshot;
+}
