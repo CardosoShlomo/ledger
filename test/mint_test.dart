@@ -41,54 +41,62 @@ final class _LoopGate extends Guard<_Loop> {
       {.mint(const _Loop())};
 }
 
-enum _Rows with RegentNode<_Rows> {
-  counter(_Counter()),
-  gate(_MintOnPing());
-
-  const _Rows(this.regent);
-  @override
-  final Regent regent;
-}
-
-enum _LoopRows with RegentNode<_LoopRows> {
-  gate(_LoopGate());
-
-  const _LoopRows(this.regent);
-  @override
-  final Regent regent;
-}
+const _app = Regency({
+  _Counter(),
+  _MintOnPing(),
+});
 
 void main() {
   test('a mint re-enters at index 0: the row ABOVE the gate folds it', () {
-    final ledger = Ledger.of(_Rows.values);
+    final ledger = Ledger.root(_app);
     ledger.dispatch(const _Ping());
-    expect(ledger.read(const _Counter()), 1);
+    expect(ledger.at(const _Counter()).base, 1);
     ledger.close();
   });
 
-  test('minted facts are NOT journaled — the journal stays inputs-only', () {
-    final ledger = Ledger.of(_Rows.values);
-    final journaled = <Msg>[];
-    final sub = ledger.journal.on<Msg>().listen(journaled.add);
+  test('minted facts are NOT recorded — the entry feed stays inputs-only', () {
+    final ledger = Ledger.root(_app);
+    final recorded = <Msg>[];
+    final sub = ledger.at(.entry).msgs<Msg>().listen(recorded.add);
     ledger.dispatch(const _Ping());
     ledger.dispatch(const _Ping());
     // taps are async — settle the microtask queue
     return Future(() {
-      expect(journaled.whereType<_Inc>(), isEmpty);
-      expect(journaled.whereType<_Ping>().length, 2);
-      expect(ledger.read(const _Counter()), 2);
+      expect(recorded.whereType<_Inc>(), isEmpty);
+      expect(recorded.whereType<_Ping>().length, 2);
+      expect(ledger.at(const _Counter()).base, 2);
       sub.cancel();
       ledger.close();
     });
   });
 
   test('replay RE-DERIVES mints from the source facts alone', () {
-    final z = replay(_Rows.values, const [_Ping(), _Ping(), _Ping()]);
-    expect(z[_Rows.counter], 3);
+    final z = replay(_app, const [_Ping(), _Ping(), _Ping()]);
+    expect(z[const _Counter()], 3);
+  });
+
+  test('the gate memory tells the whole story: forwarded AND minted', () {
+    final ledger = Ledger.root(_app);
+    final minted = <Msg>[];
+    final forwarded = <Msg>[];
+    final gate = ledger.at(const _MintOnPing());
+    final subs = [
+      gate.minted.listen(minted.add),
+      gate.forwarded.listen(forwarded.add),
+    ];
+    ledger.dispatch(const _Ping());
+    return Future(() {
+      expect(minted.single, isA<_Inc>());
+      expect(forwarded.single, isA<_Ping>());
+      for (final s in subs) {
+        s.cancel();
+      }
+      ledger.close();
+    });
   });
 
   test('a mint chain past the budget throws — sequencing is diagnosed', () {
-    final ledger = Ledger.of(_LoopRows.values);
+    final ledger = Ledger.root(const _LoopGate());
     expect(() => ledger.dispatch(const _Loop()), throwsStateError);
     ledger.close();
   });

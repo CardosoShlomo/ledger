@@ -49,17 +49,17 @@ void main() {
     final counter = ledger.store(const _Counter());
 
     final journalSeen = <Object>[];
-    ledger.journal.on<Msg>().listen(journalSeen.add);
+    ledger.at(.entry).msgs<Msg>().listen(journalSeen.add);
     final admittedSeen = <Object>[];
-    ledger.on<Msg>().listen(admittedSeen.add);
+    ledger.at(.exit).msgs<Msg>().listen(admittedSeen.add);
 
     ledger.dispatch(_Inc('a', 5));
     ledger.dispatch(_Reset('a')); // dropped above the store's row
 
     await Future<void>.delayed(Duration.zero); // observers deliver post-cut
     expect(counter['a']?.value, 5); // reset never reached the store
-    expect(admittedSeen.length, 1); // ledger.on = the END of the queue — no ghost effects
-    expect(journalSeen.length, 2); // …but the journal kept BOTH (complete record)
+    expect(admittedSeen.length, 1); // .exit = the END of the queue — no ghost effects
+    expect(journalSeen.length, 2); // …but .entry kept BOTH (complete record)
   });
 
   test('a guard protects only the rows below it — placement is semantics',
@@ -88,7 +88,7 @@ void main() {
     final counter = ledger.store(const _Counter());
     // message → effect → message: the effect delivers async (post-cut), so
     // its dispatch is an ordinary new traversal — never re-entrant.
-    ledger.on<_Inc>().listen((msg) {
+    ledger.at(.exit).msgs<_Inc>().listen((msg) {
       if (msg.by == 5) ledger.dispatch(_Inc('a', 1));
     });
     ledger.dispatch(_Inc('a', 5));

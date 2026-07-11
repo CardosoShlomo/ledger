@@ -131,7 +131,7 @@ final class LocalCatalog extends Store<String, Product, LocalCatalogMsg> {
 }
 
 final class LocalSupports extends Projection<Product, String, Product> {
-  const LocalSupports();
+  const LocalSupports() : super(const Catalog(), const LocalCatalog());
   @override
   Product resolve(Product? row, Product local) => row ?? local;
 }
@@ -176,7 +176,7 @@ final class ShopWrite extends Unit<String?, ShopWriteMsg> {
 
 /// 10. The dock's merge edge: reads show the promise until it settles.
 final class WriteSupportsShop extends UnitProjection<String?, String> {
-  const WriteSupportsShop();
+  const WriteSupportsShop() : super(const Shop(), const ShopWrite());
   @override
   String resolve(String value, String? pending) => pending ?? value;
 }
@@ -239,36 +239,29 @@ final class RuleCatalogPage extends Guard<CatalogPage> {
   }
 }
 
-// ── 3. The REGENTS enum: row order IS the queue. Gates stand above what
-// they protect; the dock and its unit close the file. ──
-enum Rows with RegentNode<Rows> {
-  dedupeLoad(DedupeLoad()),
-  inFlight(CatalogInFlight()),
-  stripCachedCatalog(StripCachedCatalog()),
-  ruleCatalogPage(RuleCatalogPage()),
-  coverage(CatalogCoverage()),
-  localCatalog(LocalCatalog()),
-  catalog(Catalog()),
-  shopWrite(ShopWrite()),
-  shop(Shop());
-
-  const Rows(this.regent);
-  @override
-  final Regent regent;
-}
+// ── 3. The REGENCY: the app as a const value — set order IS the queue.
+// Gates stand above what they protect; the dock and its unit close the
+// set; the projections in `merges` carry their own endpoints. ──
+const app = Regency({
+  DedupeLoad(),
+  CatalogInFlight(),
+  StripCachedCatalog(),
+  RuleCatalogPage(),
+  CatalogCoverage(),
+  LocalCatalog(),
+  Catalog(),
+  ShopWrite(),
+  Shop(),
+}, merges: {
+  LocalSupports(),
+  WriteSupportsShop(),
+});
 
 void main() {
-  final ledger = Ledger.of(Rows.values);
-  final catalog = ledger.memoryOf(Rows.catalog)
-      as StoreMemory<String, Product, CatalogMsg>;
-  final local = ledger.memoryOf(Rows.localCatalog)
-      as StoreMemory<String, Product, LocalCatalogMsg>;
-  final shop = ledger.memoryOf(Rows.shop) as UnitMemory<String, ShopSaved>;
-  final write =
-      ledger.memoryOf(Rows.shopWrite) as UnitMemory<String?, ShopWriteMsg>;
-  // 8/10. Merge edges — read-time, never copied state.
-  catalog.mergeStore(local, const LocalSupports());
-  shop.merge(write, const WriteSupportsShop());
+  // TWO doors: dispatch (write) and at (stand at a position, typed).
+  final ledger = Ledger.root(app);
+  final catalog = ledger.at(const Catalog());
+  final shop = ledger.at(const Shop());
 
   // 11. An effect: observes post-fold, atomically (cause, consequence).
   // Taps deliver ASYNC — after the synchronous script below, each seeing a
@@ -288,21 +281,22 @@ void main() {
       [Product('p1', 'kettle', 10), Product('p3', 'mug', 30)],
       hasMore: false));
   print('catalog: ${[for (final p in catalog.values) p.name]}');
-  print('covered 20? ${(ledger.read(const CatalogCoverage())).contains(20)}');
+  final covered = ledger.at(const CatalogCoverage()).base;
+  print('covered 20? ${covered.contains(20)}');
 
   // 9/10. The dock: the promise shows instantly, base never lied, the echo
   // settles — and a silent server would settle via a timeout FACT instead.
   ledger.dispatch(const RenameShop('corner shop & co'));
-  print('shop reads "${shop.value}", base holds "${ledger.read(const Shop())}"');
+  print('shop reads "${shop.value}", base holds "${shop.base}"');
   ledger.dispatch(const ShopSaved('corner shop & co'));
   print('settled: "${shop.value}"');
 
   // 12. The LAW: cache-vs-authority converges in either order.
-  final a = replay(Rows.values, [
+  final a = replay(app, [
     const CachedCatalog([Product('p2', 'ghost teapot', 20)]),
     const CatalogPage([Product('p3', 'mug', 30)], hasMore: false),
   ]);
-  final b = replay(Rows.values, [
+  final b = replay(app, [
     const CatalogPage([Product('p3', 'mug', 30)], hasMore: false),
     const CachedCatalog([Product('p2', 'ghost teapot', 20)]),
   ]);
@@ -311,5 +305,5 @@ void main() {
   ledger.close();
 }
 
-bool _equal(LedgerState<Rows> a, LedgerState<Rows> b) =>
-    Rows.values.every((r) => '${a[r]}' == '${b[r]}');
+bool _equal(Map<Object, Object?> a, Map<Object, Object?> b) =>
+    a.keys.every((r) => '${a[r]}' == '${b[r]}');

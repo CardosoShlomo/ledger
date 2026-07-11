@@ -6,55 +6,55 @@ import 'package:meta/meta.dart';
 import 'msg.dart';
 import 'pure.dart';
 
-/// Marks the REGENTS enum canon's generator reads: each row holds a
-/// [Regent] — a store, a unit, a guard, or a veto — and ROW ORDER IS
-/// TRAVERSAL ORDER. The rows share one order but act OPPOSITELY: store rows
-/// are readers (they fold what passes, never touching it — what they see is
-/// what survived the guards above them); guard rows are judges (stateless,
-/// fold nothing, decide what every row below sees: pass, drop, rewrite).
-/// Merge edges live in the enum's static `merges` set
-/// (`users.from(viewer, const ViewerSupportsUser())`) and connect reader
-/// rows: store targets take store or unit sources; a unit target takes a
-/// unit source. Everything else (key node, key type, tree machinery, screen
-/// associations) derives from the `@entities` graph via each store's entity
-/// type `E`.
-class Regents {
-  const Regents();
-}
-
-/// The arg-less default.
-const regents = Regents();
-
-/// The contract the `@regents` enum wears: a row is a held [Regent]
-/// instance, nothing more (`ads(Ads())`, `cachedChatsGate(CachedChatsGate())`).
-mixin RegentNode<Self extends RegentNode<Self>> on Enum {
-  Regent get regent;
-
-  /// A MERGE EDGE for the enum's static `merges` set: this row's store
-  /// reads-from [source]'s rows through [projection]
-  /// (`users.from(viewer, const ViewerSupportsUser())`). Chainable —
-  /// resolution in declaration order. STORE rows only, both ends (the
-  /// generator enforces it).
-  RegentMerge<Self> from(Self source, Object projection) =>
-      RegentMerge<Self>(this as Self, [(source, projection)]);
-}
-
-/// A target row's collected merge edges — what [RegentNode.from] builds.
-class RegentMerge<Self extends RegentNode<Self>> {
-  const RegentMerge(this.target, this.edges);
-
-  final Self target;
-  final List<(Self, Object)> edges;
-
-  /// Chain another source into the same target.
-  RegentMerge<Self> from(Self source, Object projection) =>
-      RegentMerge<Self>(target, [...edges, (source, projection)]);
-}
-
 /// What a `@stores` row may hold: a keyed [Store] or a [Unit]. [S] is the
 /// state a `read` of the regent returns — the keyed collection for a store,
 /// the value for a unit — so one typed lookup serves both kinds.
 abstract interface class AnyStore<S> {}
+
+/// A POSITION in the queue that answers `ledger.at(...)` with its typed
+/// [Handle] — the spec instance carries the handle type, so the lookup is
+/// fully typed with no name in between. Every regent kind is a position
+/// (store → `StoreMemory`, unit → `UnitMemory`, guard → `GuardMemory`), and
+/// the two positions nobody declares are the static sentinels:
+///
+/// ```dart
+/// ledger.at(const Products())[id];        // a row's live memory
+/// ledger.at(.entry).msg<Msg>();           // index −1: the RECORD
+/// ledger.at(.exit).msg<OrderPlaced>();    // index n+1: the ADMITTED feed
+/// ```
+///
+/// OBSERVE on `.exit`, RECORD on `.entry`: everything enters (the record is
+/// complete — replay, persistence, transport mirrors tap it), only what
+/// survived every judge exits (effects tap it, so nothing fires on a
+/// dropped message; minted facts appear here, provenance-blind).
+abstract interface class At<Handle> {
+  /// Index −1: every fact as dispatched, before any judge.
+  static const entry = EntryPosition();
+
+  /// Index n+1: what survived every guard — a dropped fact never exits.
+  static const exit = ExitPosition();
+}
+
+/// The sentinel for the queue's ingress — see [At.entry].
+final class EntryPosition implements At<Feed> {
+  const EntryPosition();
+}
+
+/// The sentinel for the queue's end — see [At.exit].
+final class ExitPosition implements At<Feed> {
+  const ExitPosition();
+}
+
+/// The stream-only face of a sentinel position: typed message taps, no
+/// dispatch — nobody injects mid-queue.
+final class Feed {
+  const Feed(this._bus);
+
+  final Bus _bus;
+
+  /// The [M]-typed messages passing this position (plural = a stream).
+  Stream<M> msgs<M extends Msg>() => _bus.on<M>();
+}
 
 /// The common face of [Projection] and [UnitProjection] — what a
 /// `Regency.merges` set holds.
@@ -253,7 +253,10 @@ class Bus {
 /// store ([StoreMemory]) is created separately and wired to a [Bus].
 @immutable
 abstract base class Store<K, E extends Identifiable<K>, M extends Msg>
-    extends Regent implements AnyStore<IdentifiableMap<K, E>> {
+    extends Regent
+    implements
+        AnyStore<IdentifiableMap<K, E>>,
+        At<StoreMemory<K, E, M>> {
   const Store({this.initial = const {}});
 
   /// The collection before any fact has arrived — empty unless seeded.
@@ -277,7 +280,9 @@ abstract base class Store<K, E extends Identifiable<K>, M extends Msg>
 /// viewer profile, a requests+unseen state). Same purity contract.
 @immutable
 abstract base class Unit<S, M extends Msg> extends Regent
-    implements AnyStore<S> {
+    implements
+        AnyStore<S>,
+        At<UnitMemory<S, M>> {
   const Unit(this.initial);
 
   /// The value before any fact has arrived.
@@ -343,7 +348,20 @@ class UnitMemory<S, M extends Msg> {
   /// The fold's full story, post-reduce — one event per delivered family
   /// message (a no-op fold still emits: msg-type filters see the family
   /// completely). Transition listeners filter on a before/after delta.
+  /// The PRIMITIVE the branches below derive from — atomic, so nothing
+  /// races the fold.
   Stream<UnitEvent<S, M>> get events => _events.stream;
+
+  /// The [T]-typed family messages as delivered at this row.
+  Stream<T> msgs<T extends M>() =>
+      events.where((e) => e.msg is T).map((e) => e.msg as T);
+
+  /// The post-fold values, one per delivery.
+  Stream<S> get states => events.map((e) => e.after);
+
+  /// The pre-fold values, one per delivery — pair with [states] for
+  /// transition logic without racing the fold.
+  Stream<S> get statesBefore => events.map((e) => e.before);
 
   void dispose() {
     _sub.cancel();
@@ -422,9 +440,20 @@ class StoreMemory<K, E extends Identifiable<K>, M extends Msg> {
   }
 
   /// The fold's full story, post-reduce: (cause, consequence) atomically —
-  /// the ONE stream effects subscribe to (filters recover every narrower
-  /// feed).
+  /// the PRIMITIVE the branches below derive from (filters recover every
+  /// narrower feed without racing the fold).
   Stream<StoreEvent<K, E, M>> get events => _events.stream;
+
+  /// The [T]-typed family messages as delivered at this row.
+  Stream<T> msgs<T extends M>() =>
+      events.where((e) => e.msg is T).map((e) => e.msg as T);
+
+  /// The post-fold collections, one per delivery.
+  Stream<IdentifiableMap<K, E>> get states => events.map((e) => e.after);
+
+  /// The pre-fold collections, one per delivery.
+  Stream<IdentifiableMap<K, E>> get statesBefore =>
+      events.map((e) => e.before);
 
   // ── Merge edges (read resolvers) ──────────────────────────────────────
   // `user.merge(viewer, projection)`: per-key reads consult each edge's

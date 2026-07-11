@@ -1,3 +1,7 @@
+import 'dart:async';
+
+import 'package:meta/meta.dart';
+
 import 'msg.dart';
 import 'pure.dart';
 import 'store.dart';
@@ -56,7 +60,8 @@ final class MintJudgment implements Judgment {
 /// through [read] — the OWN ledger's state, by regent identity — so a
 /// guard is replayable by construction and table-testable with
 /// (state, msg) pairs alone: judgments are VALUES.
-abstract base class Guard<M extends Msg> extends Regent {
+abstract base class Guard<M extends Msg> extends Regent
+    implements At<GuardMemory<M>> {
   const Guard();
 
   @pure
@@ -66,6 +71,56 @@ abstract base class Guard<M extends Msg> extends Regent {
   Null mount(LedgerRows ledger) {
     ledger.guard<M>(this);
     return null;
+  }
+}
+
+/// One judgment's full story, emitted AFTER the verdict ran: the submitted
+/// message and what the guard launched for it, atomically — for a [Veto],
+/// an empty [verdict] IS the block. Observation only (`ledger.at(spec)`);
+/// the flow itself never depends on it.
+@immutable
+final class GuardEvent<M extends Msg> {
+  const GuardEvent({required this.msg, required this.verdict});
+
+  final M msg;
+  final Set<Judgment> verdict;
+
+  /// Nothing continued below this row — the drop, as a question.
+  bool get dropped => verdict.isEmpty;
+}
+
+/// The live handle at a guard's row (`ledger.at(const CachedGate())`):
+/// the judged input and the verdict, observable — a judge holds no state,
+/// so its memory is pure story. Plural members are streams, all derived
+/// from the atomic [events]:
+class GuardMemory<M extends Msg> {
+  final StreamController<GuardEvent<M>> _events =
+      StreamController<GuardEvent<M>>.broadcast();
+
+  /// One event per judged message: (input, verdict) atomically — the
+  /// PRIMITIVE the branches below derive from.
+  Stream<GuardEvent<M>> get events => _events.stream;
+
+  /// The [T]-typed messages that reached this judge.
+  Stream<T> msgs<T extends M>() =>
+      events.where((e) => e.msg is T).map((e) => e.msg as T);
+
+  /// The messages whose verdict was EMPTY — the veto's bool, as a feed.
+  Stream<M> get dropped =>
+      events.where((e) => e.dropped).map((e) => e.msg);
+
+  /// What continued below this row (rewrites and fan-outs included).
+  Stream<Msg> get forwarded => events.expand(
+      (e) => [for (final j in e.verdict.whereType<ForwardJudgment>()) j.msg]);
+
+  /// The derivations this judge launched as new rounds.
+  Stream<Msg> get minted => events.expand(
+      (e) => [for (final j in e.verdict.whereType<MintJudgment>()) j.msg]);
+
+  void add(GuardEvent<M> event) => _events.add(event);
+
+  void dispose() {
+    _events.close();
   }
 }
 

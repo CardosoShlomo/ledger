@@ -7,28 +7,30 @@ import 'guard.dart';
 import 'msg.dart';
 import 'store.dart';
 
-/// The cohesive entry point: a JOURNAL (the complete, ungated record every
-/// message lands in) and POSTING (guards decide what the ledger ADMITS).
-/// Stores reduce the admitted feed and [on] taps the same feed, so a vetoed
-/// message still appears in the journal (replay / ring buffer / debug) but
-/// never reaches state OR effects — "control without dirtying".
+/// The queue of positions, behind TWO doors:
 ///
-/// Dispatch onto the journal (`dispatch`), subscribe to admitted messages
-/// (`on`), tap the raw record (`journal.on`), and register stores via `store`.
+///  * [dispatch] — state a fact (it lands on the record, then walks the
+///    guards; what survives reaches the rows below each judge).
+///  * [at] — stand at a position: a row's live handle by instance identity
+///    (`at(const Products())`), or a sentinel (`at(.entry)` the complete
+///    pre-judgment RECORD, `at(.exit)` the admitted feed).
+///
+/// A vetoed message still appears at `.entry` (replay / ring buffer /
+/// debug) but never reaches state or `.exit` — "control without dirtying".
 class Ledger implements LedgerRows {
   Ledger() {
-    // Every journal message enters the FIRST segment of the queue; guards
+    // Every record message enters the FIRST segment of the queue; guards
     // forward (or drop, or rewrite) between segments; the last segment
-    // forwards into [_posted], which [on] taps.
-    _tail = _segment(journal);
+    // forwards into [_posted] — the `.exit` position.
+    _tail = _segment(_journal);
     _plumbTailToPosted();
   }
 
-  /// The complete, ungated record. Dispatch here; tap here for replay/debug.
-  final Bus journal = Bus();
+  /// The complete, ungated record — the `.entry` position.
+  final Bus _journal = Bus();
 
-  /// The end of the queue — what survived EVERY guard. Effects tap it via
-  /// [on], so nothing fires on a dropped message.
+  /// The end of the queue — what survived EVERY guard: the `.exit`
+  /// position. Effects tap it, so nothing fires on a dropped message.
   final Bus _posted = Bus();
 
   // ── The queue: segments of stores separated by guards ──
@@ -53,14 +55,6 @@ class Ledger implements LedgerRows {
 
   final List<StreamSubscription<Object?>> _forwards = [];
   final List<void Function()> _disposers = []; // dispose the stores `close` owns
-
-  /// The declared form: a ledger CONSTRUCTED from its regent enum — [rows]
-  /// must be the enum's full `values` list, so the regent list is closed
-  /// and row order IS queue order. Guard rows judge through [read] — this
-  /// ledger's own state, no facade. Memories are read back per row, and
-  /// [SpecLedger.on] reads the feed at any declared position.
-  static SpecLedger<R> of<R extends RegentNode<R>>(List<R> rows) =>
-      SpecLedger._(rows);
 
   /// The GRAPH form: a ledger from a single [Regent] — a graph splices its
   /// rows (and its nested graphs') in order and its merges auto-wire; a
@@ -132,23 +126,22 @@ class Ledger implements LedgerRows {
     _pendingMerges.clear();
   }
 
-  /// The live memory enrolled for [spec] — a `StoreMemory` for stores, a
-  /// `UnitMemory` for units, null for guards/graphs. Instance-identity
-  /// keyed, same as [read].
-  Object? memory(AnyStore<Object?> spec) => _specMemories[spec];
-
-  /// The TYPED live store for [spec] — the spec instance carries its own
-  /// type arguments, so the memory comes back fully typed with no name in
-  /// between: `ledger.storeOf(const Products())['p1']`. Identity-keyed:
-  /// spell the row's constructor expression with `const`. Throws when no
-  /// row holds the instance.
-  StoreMemory<K, E, M> storeOf<K, E extends Identifiable<K>, M extends Msg>(
-          Store<K, E, M> spec) =>
-      (_specMemories[spec] ?? (throw _noRow(spec))) as StoreMemory<K, E, M>;
-
-  /// The TYPED live unit for [spec] — see [storeOf].
-  UnitMemory<S, M> unitOf<S, M extends Msg>(Unit<S, M> spec) =>
-      (_specMemories[spec] ?? (throw _noRow(spec))) as UnitMemory<S, M>;
+  /// THE POSITION DOOR: the queue at [position], as its typed handle — the
+  /// spec instance carries the handle type, so nothing untyped comes back.
+  ///
+  ///  * a STORE row → its `StoreMemory` (`at(const Products())[id]`)
+  ///  * a UNIT row → its `UnitMemory` (`at(const Viewer()).value`)
+  ///  * a GUARD row → its `GuardMemory` (`at(const CachedGate()).dropped`)
+  ///  * `.entry` → the RECORD's [Feed] (`at(.entry).msgs<Msg>()`)
+  ///  * `.exit` → the ADMITTED [Feed] (`at(.exit).msgs<OrderPlaced>()`)
+  ///
+  /// Row lookup is by IDENTITY: spell the row's constructor expression with
+  /// `const`. Throws when no row holds the instance.
+  Handle at<Handle>(At<Handle> position) => switch (position) {
+        EntryPosition() => Feed(_journal) as Handle,
+        ExitPosition() => Feed(_posted) as Handle,
+        _ => (_specMemories[position] ?? (throw _noRow(position))) as Handle,
+      };
 
   StateError _noRow(Object spec) => StateError(
       'no row holds this ${spec.runtimeType} instance — the lookup is by '
@@ -174,17 +167,13 @@ class Ledger implements LedgerRows {
   // duplicate identical instance, so the lookup is total and unambiguous.
   final Map<Object, Object> _specMemories = Map.identity();
 
-  /// This ledger's own CONFIRMED state by regent identity — what every
-  /// guard row judges through: `read(const BrowseDeck())` is the deck's
-  /// keyed collection, `read(const AuthMachine())` the unit's value. Base
-  /// truth only — no optimistic overlays, no merge edges — so a judge never
-  /// rules on a prediction that hasn't been acknowledged.
-  S read<S>(AnyStore<S> spec) {
-    final memory = _specMemories[spec] ??
-        (throw StateError(
-            'no row holds this ${spec.runtimeType} instance — the lookup is '
-            'by IDENTITY: match the row\'s constructor args exactly, and '
-            'spell `const` (a non-const expression is a fresh instance).'));
+  // This ledger's own CONFIRMED state by regent identity — what every
+  // guard row judges through (the injected [ReadStore]): base truth only,
+  // no optimistic overlays, no merge edges, so a judge never rules on a
+  // prediction that hasn't been acknowledged. The public spelling is
+  // `at(spec).base`.
+  S _read<S>(AnyStore<S> spec) {
+    final memory = _specMemories[spec] ?? (throw _noRow(spec));
     return switch (memory) {
       final StoreMemory m => m.base as S,
       final UnitMemory m => m.base as S,
@@ -208,6 +197,9 @@ class Ledger implements LedgerRows {
   /// [read] function.
   @override
   void guard<M extends Msg>(covariant Guard<M> spec) {
+    final mem = GuardMemory<M>();
+    _enroll(spec, mem);
+    _disposers.add(mem.dispose);
     final source = _tail;
     final seg = Bus();
     _forwards.add(source.spine<Msg>().listen((msg) {
@@ -217,9 +209,10 @@ class Ledger implements LedgerRows {
       }
       // The verdict: forwards continue THIS round below (empty = drop, one =
       // pass/rewrite, many = fan-out, in set order); mints queue as NEW
-      // rounds from index 0 after this round completes. The journal keeps
+      // rounds from index 0 after this round completes. The record keeps
       // only the original.
-      for (final j in spec.judge(msg, read)) {
+      final verdict = spec.judge(msg, _read);
+      for (final j in verdict) {
         switch (j) {
           case ForwardJudgment(:final msg):
             seg.dispatch(msg);
@@ -227,6 +220,7 @@ class Ledger implements LedgerRows {
             _mints.add((msg, _depth + 1));
         }
       }
+      mem.add(GuardEvent(msg: msg, verdict: verdict));
     }));
     _segments.add(seg);
     _tail = seg;
@@ -282,26 +276,13 @@ class Ledger implements LedgerRows {
     }
   }
 
-  /// Push a message onto the journal (it then posts through the guards);
-  /// minted rounds run after it, before anything else can interleave.
+  /// THE WRITE DOOR: push a message onto the record (it then posts through
+  /// the guards); minted rounds run after it, before anything else can
+  /// interleave.
   void dispatch(Msg msg) {
-    journal.dispatch(msg);
+    _journal.dispatch(msg);
     _drainMints();
   }
-
-  /// The MANUAL-STORE door: subscribe to typed messages the ledger ADMITTED —
-  /// the exact feed registered stores reduce — and wire your own reduce logic
-  /// (a riverpod Notifier, a bloc) where [Store] is too simple. Side-effect
-  /// subscribers (snackbars, sounds) belong here too: post-guard, so nothing
-  /// fires on a vetoed message.
-  ///
-  /// OBSERVE here, RECORD on `journal.on`. This feed includes MINTED facts
-  /// (provenance-blind — an effect fires on a derived ask exactly like a
-  /// dispatched one). Anything that RECORDS facts — persistence for replay,
-  /// a transport mirror, replication — taps `journal.on` instead: mints
-  /// re-derive, so a recording of the admitted feed applies every
-  /// derivation twice (once from the copy, once re-derived).
-  Stream<M> on<M extends Msg>() => _posted.on<M>();
 
   /// A live store for [spec], standing at the CURRENT row: it folds
   /// whatever survives the guards declared above it.
@@ -331,47 +312,10 @@ class Ledger implements LedgerRows {
       f.cancel();
     }
     _tailForward?.cancel();
-    journal.close();
+    _journal.close();
     for (final b in _segments) {
       b.close();
     }
     _posted.close();
   }
 }
-
-/// A ledger built from its DECLARED regent enum ([Ledger.of]): the regent
-/// list is closed, row order is queue order, and every gap between rows is a
-/// named observation point. `on<M>()` keeps the base meaning (past the last
-/// row — fully admitted); `on<M>(before: row)` reads the feed exactly as it
-/// reaches that regent, so `before: rows.first` is the raw ingress and
-/// `before: someStore` is what that store folds.
-final class SpecLedger<R extends RegentNode<R>> extends Ledger {
-  SpecLedger._(this.rows) {
-    for (var i = 0; i < rows.length; i++) {
-      if (rows[i].index != i) {
-        throw ArgumentError(
-            'rows must be the regent enum\'s full `values` list in order; '
-            'row ${rows[i].name} sits at ${rows[i].index}, got position $i');
-      }
-    }
-    for (final row in rows) {
-      _sources[row] = _tail;
-      _memories[row] = row.regent.mount(this);
-    }
-  }
-
-  /// The declared regent list — the enum's `values`, verbatim.
-  final List<R> rows;
-
-  final Map<R, Bus> _sources = {};
-  final Map<R, Object?> _memories = {};
-
-  /// [row]'s live memory: a `StoreMemory` for store rows, a `UnitMemory`
-  /// for unit rows, null for guard rows.
-  Object? memoryOf(R row) => _memories[row];
-
-  @override
-  Stream<M> on<M extends Msg>({R? before}) =>
-      before == null ? super.on<M>() : _sources[before]!.on<M>();
-}
-

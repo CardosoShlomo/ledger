@@ -98,7 +98,7 @@ void main() {
     ledger.guard(const _FloorGuard());
     final prices = ledger.store(const _Prices());
     final admitted = <Msg>[];
-    ledger.on<Msg>().listen(admitted.add);
+    ledger.at(.exit).msgs<Msg>().listen(admitted.add);
 
     ledger.dispatch(const _PriceSet('a', -1));
     await Future<void>.delayed(Duration.zero);
@@ -126,7 +126,7 @@ void main() {
     ledger.guard(const _Unbulk());
     final below = ledger.store(const _Prices(1)); // sees the branches
     final seen = <String>[];
-    ledger.on<_PriceSet>().listen((m) => seen.add(m.id));
+    ledger.at(.exit).msgs<_PriceSet>().listen((m) => seen.add(m.id));
 
     ledger.dispatch(const _BulkSet([('a', 1), ('b', 2), ('c', 3)]));
     await Future<void>.delayed(Duration.zero);

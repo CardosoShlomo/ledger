@@ -127,7 +127,7 @@ void main() {
 
     // The shadow answers the main's reads through the carried edge.
     ledger.dispatch(const CachedProducts([Product('p1', 'kettle')]));
-    final products = ledger.memory(const Products()) as StoreMemory;
+    final products = ledger.at(const Products());
     expect((products['p1'] as Product).name, 'kettle');
 
     // Once the authority covers, the gate drops late cache for rows below.
@@ -140,18 +140,18 @@ void main() {
   test('a nested graph SPLICES: its rows are real rows, its merges wire', () {
     final ledger = Ledger.root(app);
     ledger.dispatch(const RenameShop('corner & co'));
-    final shop = ledger.memory(const Shop()) as UnitMemory;
+    final shop = ledger.at(const Shop());
     expect(shop.value, 'corner & co'); // the dock's promise answers reads
-    expect(ledger.read(const Shop()), 'corner shop'); // base never folds it
+    expect(ledger.at(const Shop()).base, 'corner shop'); // base never folds it
     ledger.dispatch(const ShopSaved('corner & co'));
-    expect(ledger.read(const Shop()), 'corner & co');
+    expect(ledger.at(const Shop()).base, 'corner & co');
     ledger.close();
   });
 
   test('a single regent IS a ledger — no graph ceremony', () {
     final ledger = Ledger.root(const Covered());
     ledger.dispatch(const ProductsLoaded([]));
-    expect(ledger.read(const Covered()), isTrue);
+    expect(ledger.at(const Covered()).base, isTrue);
     ledger.close();
   });
 
@@ -171,12 +171,12 @@ void main() {
     expect(() => Ledger.root(dup), throwsStateError);
   });
 
-  test('replayRoot: the graph replays to a snapshot keyed by instance', () {
-    final a = replayRoot(app, const [
+  test('replay: the graph replays to a snapshot keyed by instance', () {
+    final a = replay(app, const [
       CachedProducts([Product('p1', 'kettle')]),
       ProductsLoaded([Product('p2', 'mug')]),
     ]);
-    final b = replayRoot(app, const [
+    final b = replay(app, const [
       ProductsLoaded([Product('p2', 'mug')]),
       CachedProducts([Product('p1', 'kettle')]),
     ]);

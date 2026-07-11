@@ -50,14 +50,10 @@ final class _Count extends Unit<int, _Msg> {
   int reduce(int s, _Msg m) => m is _Put || m is _Tick ? s + 1 : s;
 }
 
-enum _Rows with RegentNode<_Rows> {
-  docs(_Docs()),
-  count(_Count());
-
-  const _Rows(this.regent);
-  @override
-  final Regent regent;
-}
+const _app = Regency({
+  _Docs(),
+  _Count(),
+});
 
 void main() {
   group('replayStore (single store)', () {
@@ -86,22 +82,22 @@ void main() {
 
   group('replay (whole ledger)', () {
     test('snapshots every citizen — store map and unit value', () {
-      final s = replay(_Rows.values, [_Put('x', '1'), _Tick()]);
-      expect(s[_Rows.docs], {'x': const _Doc('x', '1')});
-      expect(s[_Rows.count], 2); // _Put + _Tick both count
+      final s = replay(_app, [_Put('x', '1'), _Tick()]);
+      expect(s[const _Docs()], {'x': const _Doc('x', '1')});
+      expect(s[const _Count()], 2); // _Put + _Tick both count
     });
 
     test('order-independent facts converge across the WHOLE ledger', () {
       expect(
-        replay(_Rows.values, [_Put('x', '1'), _Tick(), _Put('y', '2')]),
-        equals(replay(_Rows.values, [_Tick(), _Put('y', '2'), _Put('x', '1')])),
+        replay(_app, [_Put('x', '1'), _Tick(), _Put('y', '2')]),
+        equals(replay(_app, [_Tick(), _Put('y', '2'), _Put('x', '1')])),
       );
     });
 
     test('an order-dependent fact diverges the ledger snapshot', () {
       expect(
-        replay(_Rows.values, [_SetName('a'), _SetName('b')]),
-        isNot(replay(_Rows.values, [_SetName('b'), _SetName('a')])),
+        replay(_app, [_SetName('a'), _SetName('b')]),
+        isNot(replay(_app, [_SetName('b'), _SetName('a')])),
       );
     });
   });

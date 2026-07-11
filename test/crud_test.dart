@@ -68,13 +68,13 @@ void main() {
   const crud = OrdersCrud();
 
   StoreMemory<String, Order, Msg> ordersOf(Ledger ledger) =>
-      ledger.memory(crud.store) as StoreMemory<String, Order, Msg>;
+      ledger.at(crud.store);
 
   test('the brick is one const identity — its parts are THE mounted rows', () {
     expect(identical(crud.store, const OrdersCrud().store), isTrue);
     final ledger = Ledger.root(crud);
-    expect(ledger.memory(crud.store), isNotNull);
-    expect(ledger.read(crud.covered), isFalse);
+    expect(ledger.at(crud.store), isNotNull);
+    expect(ledger.at(crud.covered).base, isFalse);
     ledger.close();
   });
 
@@ -84,7 +84,7 @@ void main() {
     ledger.dispatch(const CachedOrders([Order('o1', 100)]));
     expect(orders['o1'], isNotNull); // shadow answers through the merge
     ledger.dispatch(const OrdersLoaded([Order('o2', 250)]));
-    expect(ledger.read(crud.covered), isTrue);
+    expect(ledger.at(crud.covered).base, isTrue);
     ledger.dispatch(const CachedOrders([Order('o3', 999)]));
     expect(orders['o3'], isNull); // gated
     ledger.close();
@@ -96,10 +96,10 @@ void main() {
     ledger.dispatch(const OrdersLoaded([]));
     ledger.dispatch(const PlaceOrder(Order('o9', 40)));
     expect(orders['o9'], isNotNull); // pending, via the dock edge
-    expect(ledger.read(crud.store)['o9'], isNull); // base truth: not admitted
+    expect(ledger.at(crud.store).base['o9'], isNull); // base truth: not admitted
     ledger.dispatch(const OrderPlaced(Order('o9', 40)));
-    expect(ledger.read(crud.store)['o9'], isNotNull); // admitted
-    expect(ledger.read(crud.dock!)['o9'], isNull); // dock cleared
+    expect(ledger.at(crud.store).base['o9'], isNotNull); // admitted
+    expect(ledger.at(crud.dock!).base['o9'], isNull); // dock cleared
     ledger.close();
   });
 
@@ -121,10 +121,10 @@ void main() {
     ledger.dispatch(const OrdersLoaded([Order('o1', 100)]));
     ledger.dispatch(const PlaceOrder(Order('o9', 40)));
     ledger.dispatch(const SessionReset());
-    expect(ledger.read(crud.store), isEmpty);
-    expect(ledger.read(crud.dock!), isEmpty);
-    expect(ledger.read(crud.cache), isEmpty);
-    expect(ledger.read(crud.covered), isFalse);
+    expect(ledger.at(crud.store).base, isEmpty);
+    expect(ledger.at(crud.dock!).base, isEmpty);
+    expect(ledger.at(crud.cache).base, isEmpty);
+    expect(ledger.at(crud.covered).base, isFalse);
     ledger.close();
   });
 
@@ -133,7 +133,7 @@ void main() {
     expect(list.dock, isNull);
     final ledger = Ledger.root(list);
     ledger.dispatch(const PlaceOrder(Order('o9', 40))); // Never slot: inert
-    expect(ledger.read(list.store), isEmpty);
+    expect(ledger.at(list.store).base, isEmpty);
     ledger.close();
   });
 
@@ -142,20 +142,20 @@ void main() {
     final app = Regency({const OrdersList(), crud});
     final ledger = Ledger.root(app);
     ledger.dispatch(const OrdersLoaded([Order('o1', 100)]));
-    expect(ledger.read(crud.covered), isTrue);
-    expect(ledger.read(const OrdersList().covered), isTrue);
+    expect(ledger.at(crud.covered).base, isTrue);
+    expect(ledger.at(const OrdersList().covered).base, isTrue);
     ledger.close();
   });
 
-  test('replayRoot re-derives the brick — same journal, same snapshot', () {
+  test('replay re-derives the brick — same journal, same snapshot', () {
     const order = [
       CachedOrders([Order('o1', 100)]),
       OrdersLoaded([Order('o2', 250)]),
       PlaceOrder(Order('o9', 40)),
       OrderPlaced(Order('o9', 40)),
     ];
-    final a = replayRoot(crud, order);
-    final b = replayRoot(crud, order);
+    final a = replay(crud, order);
+    final b = replay(crud, order);
     expect((a[crud.store] as Map).keys, ['o2', 'o9']);
     expect((a[crud.store] as Map).keys, (b[crud.store] as Map).keys);
     expect(a[crud.covered], isTrue);

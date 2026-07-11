@@ -1,8 +1,9 @@
 ## 0.12.0
 
-- `Regency`: the app as a const VALUE — ordered regent rows plus merge edges; graphs nest (a segment splices in place) and a plain regent is a one-row graph.
-- `Ledger.root(regent)` / `replayRoot(regent, order)`: the graph form of construction and replay; `ledger.memory(spec)` / `ledger.snapshot()` read back by instance identity.
-- `ledger.storeOf(const Products())` / `ledger.unitOf(const Viewer())`: TYPED memories by instance identity — the spec argument carries the type arguments, so no generated name stands between the row and its reads.
+- `Regency`: the app as a const VALUE — ordered regent rows plus merge edges; graphs nest (a segment splices in place) and a plain regent is a one-row graph; `Ledger.root(regent)` builds it, splicing rows and auto-wiring merges.
+- TWO doors: `dispatch(msg)` and `at(position)` — a typed handle per position: `at(const Products())` a StoreMemory, `at(const Viewer())` a UnitMemory, `at(const CachedGate())` a GuardMemory, `at(.entry)` the record, `at(.exit)` the admitted feed. Plural members are streams (`msgs<T>()`, `states`, `statesBefore`, `events`; guards add `dropped`/`forwarded`/`minted`), singular are values now (`base`, `entities`, `value`).
+- Guards enroll a `GuardMemory` — judged input and verdict observable as one `GuardEvent`; duplicate guard instances now throw like any regent.
+- BREAKING: the enum tier retired — `Regents`/`RegentNode`/`RegentMerge`/`SpecLedger`/`Ledger.of` deleted; `replay(root, order)` takes the graph; `journal`, `read`, `memory`, `on<M>()` fold into `at(...)`.
 - `Projection`/`UnitProjection` carry their endpoints as const fields (`: super(const Todos(), const LocalTodos())`) — the projection IS the edge.
 - The role vocabulary: `ListMsg`/`CacheMsg`/`AddMsg`/`EchoOf`/`RemoveMsg`/`ResetMsg` — field-less mixins; extends = meaning, with = shape, implements = audience.
 - CRUD bricks: `Crud` slot-bound base with `ListCrud`/`WritableListCrud` presets over role-typed regents (`ResourceRows`, `ResourceCache`, `ResourceDock`, `Coverage`, `CacheGate`, `ShadowSupports`).
