@@ -2,7 +2,7 @@
 //
 //   1. facts as sealed families (a msg IS a source: its TYPE is its rank)
 //   2. stores & units: pure folds, nothing else lives in a memory
-//   3. the regents ENUM: row order is traversal order; gates protect below
+//   3. the REGENCY: set order is traversal order; gates protect below
 //   4. guards are LAUNCHERS: `.forward` (drop/rewrite/fan-out below) and
 //      `.mint` (derive a NEW round from index 0 — unjournaled, re-derived
 //      on replay); the SHADOW LAW: every row folds a sealed GROUP of

@@ -23,26 +23,50 @@ walks the QUEUE — an ordered list of REGENTS:
   with its siblings. A `Veto` is the boolean specialization (pass or drop).
 
 One order, two opposite relationships to it: moving a store changes what IT
-sees; moving a guard changes what EVERYONE below it sees. The journal always
+sees; moving a guard changes what EVERYONE below it sees. The record always
 keeps the original fact — guards shape the admitted feed, never the record.
-`ledger.on<M>()` taps the END of the queue, so effects never fire on a
-dropped message.
+
+## Two doors
+
+The app is a const VALUE — a `Regency` of rows in traversal order plus the
+merge edges (each projection carries its own endpoints):
 
 ```dart
-final ledger = Ledger();
-ledger.veto<CatalogCacheMsg>((_) => cartHasItems); // inline, hand-wired
-final products = ledger.store(const Products());   // reads below the veto
+const app = Regency({
+  CatalogCovered(),
+  CachedCatalogGate(),  // set order is the queue — placement is protection
+  LocalCatalog(),
+  Catalog(),
+}, merges: {LocalCatalogSupports()});
+
+final ledger = Ledger.root(app); // splices rows, wires merges
 ```
 
-Guards expose nothing consumable — no state, no stream. All observation
-goes through stores; a rejection that needs UI is a fact a store folds,
-never a guard tap.
+Regencies nest (a segment splices at its position) and a plain regent is a
+one-row graph: `Ledger.root(const NavUnit())`. The ledger then has exactly
+TWO doors:
 
-With canon's generator, the queue is DECLARED: a `@regents` enum lists every
-regent in traversal order, guards as `Guard`/`Veto` classes reading the
-ledger's own state by regent identity (`read(const Products())` — checked
-at build time), and merge edges in the enum's static `merges` set
-(`products.from(localProducts, const LocalProductSupports())`).
+- **`dispatch(msg)`** — state a fact.
+- **`at(position)`** — stand at a position, typed by the spec instance:
+  `at(const Catalog())` is the store's live memory,
+  `at(const Viewer())` the unit's, `at(const CachedCatalogGate())` the
+  guard's story (`GuardEvent`s: judged input + verdict — `dropped`,
+  `forwarded`, `minted`), `at(.entry)` the complete pre-judgment RECORD,
+  `at(.exit)` the admitted feed (`at(.exit).msgs<OrderPlaced>()` — effects
+  tap here, so nothing fires on a dropped message).
+
+On every handle, PLURAL members are streams (`msgs<T>()`, `states`,
+`statesBefore`, `events` — all derived from the one atomic `events`, so
+nothing races the fold) and SINGULAR members are values now (`state` for a
+unit, `entities`/`[id]`/`ids` for a store — merge-resolved; `folded` is the
+unmerged fold truth on both, what guards judge through and what `replay`
+snapshots).
+
+Guards read the world only through `read(const Catalog())` — the ledger's
+own folded state by REGENT IDENTITY: the constructor expression IS the
+row's name (const canonicalization). With canon's generator the graph is
+annotated (`@canon const app = Regency(...)`) and every row gets a typed
+getter (`ledger.catalog`) — sugar over `at`.
 
 ## Optimism
 
