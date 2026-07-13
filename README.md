@@ -116,6 +116,80 @@ everything replays and confirm/revert/amend orders are statable as laws.
   the shadow-store pattern: a disk cache folds into its own store and
   supports the main store's reads until the authority covers.
 
+## The one clock, and why there is no effects runner
+
+Regent has exactly ONE clock: the dispatch stream. Nothing else is allowed
+to mark time — not a `Duration` parameter in the state tier, not a wall-clock
+read in a fold. So the first thing every arrival from an effects-as-values
+framework asks for — a runner with `restartable` / `latest` / `debounce`
+modes — regent deliberately does not ship. Not for lack of ambition: **the
+modes have no work left to do here.**
+
+The reason is that the wire is already a queue of facts, not a `Future` per
+call. A network ask isn't a promise you cancel; it's a fact you send. You
+cannot unsend it — you can only ignore its answer, **and ignoring is a
+judgment**, which is pure by nature. So every mode collapses into citizens:
+
+| runner mode | regent |
+|---|---|
+| `restartable` / `latest` | a CURRENT-intent row + a staleness veto |
+| `droppable` | the in-flight row + its gate |
+| `sequential` | the outbox — an ordered queue already |
+
+Search-as-you-type, whole (the wire correlation is the trick — **the answer
+echoes its question**, so staleness is judgeable in a pure fold):
+
+```dart
+final class Search extends Unit<String?, SearchMsg> {   // the CURRENT intent
+  const Search() : super(null);
+  @override
+  String? reduce(String? q, SearchMsg msg) => switch (msg) {
+    SearchQueryMsg(:final query) => query,              // newest intent wins
+    SearchResultsMsg() => q,
+  };
+}
+
+/// An answer to a question that is no longer current is dropped for every
+/// row below — the whole "cancel the stale request" story, as a judgment.
+final class StaleSearchGate extends Veto<SearchResultsMsg> {
+  const StaleSearchGate();
+  @override
+  bool block(SearchResultsMsg msg, ReadStore read) => msg.query != read(search);
+}
+```
+
+The effect that remains is a TRANSLATOR — fact in, I/O, fact out. No state,
+no branches, and its worst possible sin (a stale or duplicate answer) is
+eaten by the veto above: the edge may be racy, the ledger cannot be.
+
+```dart
+ledger.at(.exit).msgs<SearchQueryMsg>().listen((msg) async {
+  try {
+    dispatch(SearchResultsMsg(
+        query: msg.query, products: await api.searchProducts(msg.query)));
+  } on ApiException {
+    dispatch(SearchFailedMsg(query: msg.query));  // failure is a fact too
+  }
+});
+```
+
+**And when a consumer genuinely wants to wait?** The timer is a translator
+like any other edge: wall-time in, ONE fact out — `after(d, msg)` — and what
+the elapsed time MEANS is judged in the queue against the present (an epoch
+or a state check on the due-fact; a settle tick for a superseded epoch is a
+stale fact like any other). A timer nobody cancels is harmless when its tick
+is judged. Cancelling is then a cost optimization, never a correctness
+requirement — and `replay()` never arms a timer at all, so a law test proves
+the whole debounce by dispatching the due-facts, with zero real waiting.
+
+What irreducibly stays at the edge: the sites that HOLD a cancellable
+resource — upload bytes, platform streams, the socket itself. There the
+decision is still a fold (the saga says cancelled; the connection unit says
+offline) and the edge merely releases the resource. That is a small, stable,
+hand-written set — which is why effects stay one honest file.
+
+**The edge spends; the queue decides.**
+
 ## Message conventions
 
 The structure prevents most failure modes; message taxonomy discipline
