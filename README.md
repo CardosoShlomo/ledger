@@ -4,6 +4,51 @@ Optimistic, message-driven state engine: a journal of sealed facts folded
 into keyed stores and units, traversed by one ordered queue of regents.
 Pure Dart.
 
+## Regent in 60 seconds
+
+In standard state-management terms:
+
+- **Msg** — an event/action: an immutable fact you `dispatch`.
+- **Store / Unit** — a reducer with its state: a `Store` folds messages into
+  a keyed collection, a `Unit` into a single value.
+- **Guard** — middleware as a pure function: it can drop, rewrite, or fan
+  out a message before the rows below it see it.
+- **Mint** — a guard deriving a new message from one it judged (run as its
+  own round, re-judged from the top; never journaled — it re-derives on
+  replay).
+- **Ledger / journal** — the runtime plus its event log: the journal keeps
+  every dispatched message; reads and streams come from `at(position)`.
+- **Regent** — any row in the ordered queue a message walks: a store, a
+  unit, or a guard.
+
+```dart
+import 'package:regent/regent.dart';
+
+sealed class CartMsg extends Msg { const CartMsg(); }
+final class ItemAdded extends CartMsg {
+  const ItemAdded(this.productId);
+  final String productId;
+}
+
+final class Cart extends Unit<List<String>, CartMsg> {
+  const Cart() : super(const []);
+  @override
+  List<String> reduce(List<String> items, CartMsg msg) => switch (msg) {
+    ItemAdded(:final productId) => [...items, productId],
+  };
+}
+
+const cart = Cart();
+
+void main() {
+  final ledger = Ledger.root(cart);
+  ledger.dispatch(const ItemAdded('sku-42'));
+  print(ledger.at(cart).state); // [sku-42]
+}
+```
+
+The rest of this document uses these terms with their full meanings.
+
 ## The queue of regents
 
 Dispatch a `Msg`; it enters the journal (the complete, ungated record) and

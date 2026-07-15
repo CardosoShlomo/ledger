@@ -1,3 +1,7 @@
+## 0.14.1
+
+- Plain-vocabulary quickstart in the README.
+
 ## 0.14.0
 
 - BREAKING: the machinery is closed — `Ledger`, `Bus`, the memories (`StoreMemory`/`UnitMemory`/`GuardMemory`) and `Pure` are `final`. The row tier stays `base`: extend, never implement.
