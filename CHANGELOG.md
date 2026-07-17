@@ -1,3 +1,7 @@
+## 0.14.2
+
+- Why-one-journal README section; docs and example carry the one-store cache pattern.
+
 ## 0.14.1
 
 - Plain-vocabulary quickstart in the README.

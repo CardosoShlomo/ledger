@@ -49,6 +49,58 @@ void main() {
 
 The rest of this document uses these terms with their full meanings.
 
+## Why one journal
+
+The structural decision everything else falls out of: **every store folds
+the same stream, and the stream is totally ordered.** Most state
+architectures isolate per component — a bloc per page, a stream per
+feature — and that isolation is exactly what forecloses the interesting
+properties. Give all folds one ordered stream and the chain runs by
+itself:
+
+- the stream **is a journal**, so `replay(app, facts)` exists — the whole
+  application re-folded in a unit test;
+- replay exists, so **laws are executable**: order-independence and
+  cache-vs-authority convergence are `expect`s, not review comments —
+
+  ```dart
+  expect(replay(app, [cached, authority]),
+      equals(replay(app, [authority, cached])));
+  ```
+
+- delivery is by declaration (a message names its regents), so a guard
+  stands **positioned** — placement is protection, meaningful only because
+  consumers don't race on a bus;
+- an event serving many folds can't be shaped for any one screen, so the
+  vocabulary is forced to be **facts about reality** (`OrderPlaced`, never
+  `ShowSpinner`).
+
+Two rules of thumb this buys, stated once:
+
+**Reality at both doors.** A store's messages describe what happened in
+the world, and its state describes the world. Anything shaped like a
+screen — loading, selected, visible — exists only as a derivation, so no
+fold is ever rewritten because a screen changed its mind. A UI redesign is
+a read-side edit; when storage describes screens, every redesign is a
+state migration.
+
+**Scope by shareability.** State takes the scope and lifetime of what it
+describes, and the test is a thought experiment: could a second consumer —
+another surface, or a later moment — coherently mean this fact? The
+blocked-users list with one reading screen is still the world's (a second
+surface is a feature waiting to happen; the row must survive navigation).
+A scroll position is not (another screen consuming it is meaningless).
+Space-sharing gives scope, time-sharing gives lifetime and persistence,
+and the classic drift bugs — the same entity copied into three feature
+stores, data dying on navigation and refetching on return — are all
+mis-answers to that one question.
+
+The honest boundary: if the app is thin CRUD over a reliable server, a
+per-screen pattern is fine and this package is more than it needs.
+Regent's case begins where offline, optimism, and many surfaces reading
+one truth live — there it is not a nicer reducer, it is the layer
+per-screen patterns leave unowned.
+
 ## The queue of regents
 
 Dispatch a `Msg`; it enters the journal (the complete, ungated record) and
@@ -80,15 +132,13 @@ global and any equal construction ONE instance, so the name IS the row):
 
 ```dart
 const catalogCovered = CatalogCovered();
-const localCatalog = LocalCatalog();
 const catalog = Catalog();
 
 const app = Regency({
   catalogCovered,
   CachedCatalogGate(),  // set order is the queue — placement is protection
-  localCatalog,
   catalog,
-}, merges: {LocalCatalogSupports()});
+});
 
 final ledger = Ledger.root(app); // splices rows, wires merges
 ```
@@ -101,8 +151,8 @@ along and resolve before the root's own:
 ```dart
 final class WishlistFeature extends Regency {
   const WishlistFeature()
-      : super(const {WishlistCap(), wishlist},
-              merges: const {LocalWishlistSupports()});
+      : super(const {WishlistCap(), wishlist, wishlistWrite},
+              merges: const {WriteSupportsWishlist()});
 }
 ```
 
@@ -158,8 +208,10 @@ everything replays and confirm/revert/amend orders are statable as laws.
 - **Merges** — read-time edges, never copied state: a unit's state answers a
   keyed surface at its own `Identifiable` id (`merge`), or a whole store
   lends its rows to another's reads through a projection (`mergeStore`) —
-  the shadow-store pattern: a disk cache folds into its own store and
-  supports the main store's reads until the authority covers.
+  the write dock and the cross-entity lend (one store's rows answering
+  another surface's reads). A disk cache is NOT a merge: it folds into the
+  one store as an absence-only arm, its rows wearing a provenance flag any
+  consumer (a freshness gate, a censoring ruling) reads as data.
 
 ## The one clock, and why there is no effects runner
 
@@ -250,9 +302,9 @@ prevents the rest. These are the rules the engine can't enforce for you:
   `CartMsg`) is exactly what one store reduces — `sealed`, so the reduce is
   exhaustively matched and a new variant is a compile error until every
   store answers it. NO row reduces the root `Msg` — a row whose facts cross
-  families (a shadow, a dock, an in-flight unit) declares a sealed GROUP its
-  facts `implements` (a family base may join a group wholesale), so even a
-  shadow's delegation arm is typed: `final UserMsg m => const Users().reduce(rows, m)`.
+  families (a dock, an in-flight unit, a cache-fed table) declares a sealed
+  GROUP its facts `implements` (a family base may join a group wholesale),
+  so every cross-family arm is typed — no wildcard exists to write.
 - **Guards are pure.** A guard reads the world only through `read` — never
   dispatches, never touches the world. Placement is semantics: declare
   guards above the rows they protect.

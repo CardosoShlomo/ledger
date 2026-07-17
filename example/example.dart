@@ -1,4 +1,6 @@
-// The COMPLETE tour — every regent capability in one shop:
+// One ordered journal, folded by every store: replay, executable laws,
+// positioned guards, and reality-shaped facts all fall out of that single
+// decision. The COMPLETE tour — every regent capability in one shop:
 //
 //   1. facts as sealed families (a msg IS a source: its TYPE is its rank)
 //   2. stores & units: pure folds, nothing else lives in a memory
@@ -11,7 +13,8 @@
 //      the rows are NAMED by consumer-owned const globals (the audit list)
 //   6. an IN-FLIGHT row: request status as honest state, deduped by a gate
 //   7. COVERAGE: recorded permission to treat absence as knowledge
-//   8. a shadow store + mergeStore: disk cache answers until censored
+//   8. the disk cache as provenance: cached rows wear a flag, rulings
+//      censor them where the authority covered
 //   9. a WRITE DOCK: optimism as rows — pending unit, settling gate,
 //      deadline as a dispatched FACT (timers live in effects)
 //  10. unit-from-unit merge: the pending promise answers reads instantly
@@ -32,17 +35,21 @@ sealed class ShopMsg extends Msg {
 }
 
 class Product with Identifiable<String> {
-  const Product(this.id, this.name, this.addedAt);
+  const Product(this.id, this.name, this.addedAt, {this.cached = false});
   @override
   final String id;
   final String name;
   final int addedAt; // the page cursor
-
+  final bool cached; // born from disk; rulings may censor it
   @override
   bool operator ==(Object o) =>
-      o is Product && o.id == id && o.name == name && o.addedAt == addedAt;
+      o is Product &&
+      o.id == id &&
+      o.name == name &&
+      o.addedAt == addedAt &&
+      o.cached == cached;
   @override
-  int get hashCode => Object.hash(id, name, addedAt);
+  int get hashCode => Object.hash(id, name, addedAt, cached);
 }
 
 /// A cursor page of the catalog — the AUTHORITY over its own window.
@@ -53,7 +60,7 @@ class CatalogPage extends ShopMsg implements CatalogMsg, InFlightMsg {
 }
 
 /// The disk cache speaking at boot — may only fill ABSENCE, never overwrite.
-class CachedCatalog extends ShopMsg implements LocalCatalogMsg {
+class CachedCatalog extends ShopMsg implements CatalogMsg {
   const CachedCatalog(this.products);
   final List<Product> products;
 }
@@ -66,8 +73,7 @@ class LoadCatalog extends ShopMsg implements InFlightMsg {
 /// The gate's RULING — MINTED (never dispatched by hand, never journaled;
 /// replay re-derives it from the page): the window a page was exhaustive
 /// about, and the known ids it thereby declared gone.
-class CatalogRuled extends ShopMsg
-    implements CatalogMsg, LocalCatalogMsg {
+class CatalogRuled extends ShopMsg implements CatalogMsg {
   const CatalogRuled(this.lo, this.hi, this.gone);
   final int? lo, hi;
   final Set<String> gone;
@@ -77,7 +83,6 @@ class CatalogRuled extends ShopMsg
 // a message joins its family by `extends` and its readers by `implements`,
 // so every reduce is exhaustive and a new member is a compile error. ──
 sealed class CatalogMsg extends Msg {}
-sealed class LocalCatalogMsg extends Msg {}
 sealed class InFlightMsg extends Msg {}
 sealed class ShopWriteMsg extends Msg {}
 
@@ -99,8 +104,9 @@ class RenameTimedOut extends ShopMsg implements ShopWriteMsg {
 
 // ── 2. The folds. A memory holds NOTHING but these. ──
 
-/// The catalog table: wire pages upsert; rulings censor; that's all —
-/// and the sealed group says EXACTLY that: no wildcard, nothing unheard.
+/// The catalog table. Wire pages upsert; the disk cache fills absence,
+/// its rows wearing `cached` — provenance as data; a ruling censors its
+/// gone ids, and cached rows anywhere in the covered window with them.
 final class Catalog extends Store<String, Product, CatalogMsg> {
   const Catalog();
   @override
@@ -108,36 +114,19 @@ final class Catalog extends Store<String, Product, CatalogMsg> {
           IdentifiableMap<String, Product> rows, CatalogMsg msg) =>
       switch (msg) {
         CatalogPage(:final products) => rows.upsertAll(products),
-        CatalogRuled(:final gone) =>
-          rows.withoutWhere((id, _) => gone.contains(id)),
-      };
-}
-
-/// 8. The SHADOW: cache fills absence; authority facts only censor. It may
-/// hold LESS truth than the wire, never OTHER.
-final class LocalCatalog extends Store<String, Product, LocalCatalogMsg> {
-  const LocalCatalog();
-  @override
-  IdentifiableMap<String, Product> reduce(
-          IdentifiableMap<String, Product> rows, LocalCatalogMsg msg) =>
-      switch (msg) {
         CachedCatalog(:final products) => {
             for (final p in products)
-              if (!rows.containsKey(p.id)) p.id: p,
+              if (!rows.containsKey(p.id))
+                p.id: Product(p.id, p.name, p.addedAt, cached: true),
             ...rows,
           },
         CatalogRuled(:final lo, :final hi, :final gone) =>
           rows.withoutWhere((id, p) =>
               gone.contains(id) ||
-              ((lo == null || p.addedAt >= lo) &&
+              (p.cached &&
+                  (lo == null || p.addedAt >= lo) &&
                   (hi == null || p.addedAt <= hi))),
       };
-}
-
-final class LocalSupports extends Projection<Product, String, Product> {
-  const LocalSupports() : super(catalog, localCatalog);
-  @override
-  Product resolve(Product? row, Product local) => row ?? local;
 }
 
 /// 7. COVERAGE as a row: which cursor windows the authority has spoken for.
@@ -226,10 +215,7 @@ final class RuleCatalogPage extends Guard<CatalogPage> {
     final lo = msg.hasMore ? cursors.first : null; // final page: open below
     final hi = cursors.last;
     final listed = {for (final p in msg.products) p.id};
-    final known = {
-      ...read(localCatalog),
-      ...read(catalog),
-    };
+    final known = read(catalog);
     return {
       .forward(msg),
       .mint(CatalogRuled(lo, hi, {
@@ -297,11 +283,10 @@ final class Wishlist extends Regency {
 // Gates stand above what they protect; the dock and its unit close the
 // set; the projections in `merges` carry their own endpoints. ──
 // The rows get NAMES — consumer-owned const globals: `read(catalog)` in a
-// judge, `super(catalog, localCatalog)` in a projection (keyword-free —
+// judge, `super(shop, shopWrite)` in a projection (keyword-free —
 // const variables are constant expressions), and the regency below reads
 // as the app's one audit list.
 const catalog = Catalog();
-const localCatalog = LocalCatalog();
 const catalogCoverage = CatalogCoverage();
 const catalogInFlight = CatalogInFlight();
 const shop = Shop();
@@ -314,13 +299,11 @@ const app = Regency({
   StripCachedCatalog(),
   RuleCatalogPage(),
   catalogCoverage,
-  localCatalog,
   catalog,
   shopWrite,
   shop,
   Wishlist(), // 13. a named regency — its rows splice here
 }, merges: {
-  LocalSupports(),
   WriteSupportsShop(),
 });
 
@@ -343,7 +326,7 @@ void main() {
   ledger.dispatch(const LoadCatalog());
   ledger.dispatch(const LoadCatalog()); // dropped by the gate
   // …and the authority's final page RULES: the unlisted teapot inside its
-  // window is gone, from the main AND the shadow.
+  // window is gone.
   ledger.dispatch(const CatalogPage(
       [Product('p1', 'kettle', 10), Product('p3', 'mug', 30)],
       hasMore: false));

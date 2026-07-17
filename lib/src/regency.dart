@@ -10,9 +10,9 @@ import 'store.dart';
 /// const ledger = Regency({
 ///   TodosCovered(),
 ///   CachedTodosGate(),   // order is the set's order — placement is protection
-///   LocalTodos(),
-///   Todos(),
-/// }, merges: {LocalTodoSupports()});
+///   TodoWrite(),
+///   Todos(),             // the disk cache folds in as an absence-only arm
+/// }, merges: {WriteSupportsTodos()});
 /// ```
 ///
 /// Rows are PURE regents — implicitly const from the set context, so every
